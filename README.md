@@ -164,11 +164,19 @@ registry = ToolRegistry([WeatherTool()])
 
 ### 会话记忆（Memory）
 
-请求带上 `session_id` 即启用短期记忆，服务端自动保存并复用该会话的最近对话；
-不传则保持无状态（与之前行为一致）。
+会话记忆**默认开启**：不传 `session_id` 时落到默认会话 `default`，
+服务端自动保存并复用最近对话；需要隔离多个会话时显式传 `session_id`。
 
 ```powershell
-# 第 1 轮
+# 用默认会话：多轮自动记住（无需传 session_id）
+curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
+  -H "Content-Type: application/json" `
+  -d '{"input": "我叫小明"}'
+curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
+  -H "Content-Type: application/json" `
+  -d '{"input": "我叫什么名字"}'
+
+# 用独立会话：显式传 session_id
 curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
   -H "Content-Type: application/json" `
   -d '{"input": "我叫小明", "session_id": "chat-1"}'
@@ -186,6 +194,9 @@ curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
 | `GET /api/v1/sessions` | 列出全部会话 |
 | `GET /api/v1/sessions/{id}` | 查看会话消息 |
 | `DELETE /api/v1/sessions/{id}` | 清除会话记忆 |
+
+优先级：显式 `session_id` > 显式 `history`（调用方自行管理，无状态）> 默认会话。
+把 `AGENTOS_MEMORY__DEFAULT_SESSION_ID` 设为空字符串即可恢复无状态。
 
 容量由 `AGENTOS_MEMORY__MAX_MESSAGES_PER_SESSION`（默认 50）与
 `AGENTOS_MEMORY__MAX_SESSIONS`（默认 1000，超出按 LRU 淘汰）控制。

@@ -24,9 +24,11 @@
   - HTML 用标准库 `html.parser` 转纯文本，跳过 script/style，不引入新依赖
   - `web_search` 仅在配置 `AGENTOS_TOOLS__WEB_SEARCH_API_KEY` 时注册
   - `truncate_text` 提取为公共工具函数，供本地工具与联网工具复用
-- **会话短期记忆**：Agent 可在多轮对话中记住上下文
+- **会话短期记忆**：Agent 可在多轮对话中记住上下文，**默认开启**
   - `runtime/memory.py`：`MemoryStore` 进程内实现，按 `session_id` 隔离会话
-  - 显式传 `session_id` 才启用；不传保持无状态，向后兼容
+  - 不传 `session_id` 时落到默认会话 `default`，开箱即用；
+    把 `AGENTOS_MEMORY__DEFAULT_SESSION_ID` 设为空字符串可恢复无状态
+  - 优先级：显式 `session_id` > 显式 `history`（调用方自行管理）> 默认会话
   - 双容量约束：单会话消息数上限 + 全局会话数 LRU 淘汰
   - 截断按完整轮次对齐，避免拆散 `assistant(tool_calls)` 与 `tool` 结果
   - Runtime 新增 `session_id` 参数与 `RunResult.session_id`
@@ -69,6 +71,8 @@
 - 测试增至 157 个用例，新增 `tests/test_memory.py`（25 个）覆盖存储、LRU、截断与 API
 - 联网抓取用 `httpx.MockTransport` 注入测试，SSRF 用例断言恶意地址**根本不会发起请求**
 - 测试增至 196 个用例，新增 `tests/test_web_tools.py`（39 个）覆盖 SSRF、HTML 转换与搜索
+- 默认会话开启后，显式传 `history` 的调用方会被优先尊重，避免破坏「客户端自管历史」的既有用法
+- 测试增至 199 个用例，补充默认会话、关闭默认会话与 history 优先级用例
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

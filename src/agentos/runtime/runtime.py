@@ -112,16 +112,22 @@ class AgentRuntime:
         当模型发起工具调用时，会执行工具并把结果作为 ``tool`` 消息回填，
         然后再次调用模型，直到模型给出最终回答或触及 ``max_iterations``。
 
-        传入 ``session_id`` 时启用会话记忆：先读取该会话的历史消息，
-        运行成功后再把本轮产生的消息写回；此时忽略调用方传入的 ``history``。
+        会话记忆默认开启：未传 ``session_id`` 时回退到 ``default_session_id``
+        （默认 ``default``）。命中会话时会先读取历史、运行成功后写回本轮消息，
+        此时忽略调用方传入的 ``history``；把默认会话设为空字符串可恢复无状态。
         """
         resolved = self._resolve_agent(agent)
         if not input_text.strip():
             raise ValidationError("input must not be empty", details={"agent": resolved.name})
 
-        # 会话记忆优先：显式指定 session_id 时，历史完全由记忆决定
-        if session_id:
-            history = self._memory.history(session_id)
+        # 优先级：显式 session_id > 显式 history（无状态）> 配置的默认会话。
+        # 保留 history 的优先级，避免默认记忆开启后破坏「调用方自行管理历史」的用法。
+        if history and not session_id:
+            resolved_session: str | None = None
+        else:
+            resolved_session = self._memory.resolve_session_id(session_id)
+        if resolved_session:
+            history = self._memory.history(resolved_session)
 
         run_id = new_id("run_")
         run_token = set_run_id(run_id)
@@ -210,15 +216,15 @@ class AgentRuntime:
                 duration_ms=round(duration_ms, 3),
                 finish_reason=response.finish_reason,
                 tool_call_count=tool_call_count,
-                session_id=session_id,
+                session_id=resolved_session,
             )
-            if session_id:
-                self._memory.append(session_id, messages[new_turn_start:])
+            if resolved_session:
+                self._memory.append(resolved_session, messages[new_turn_start:])
                 logger.debug(
                     "session memory updated",
                     extra={
                         "extra_fields": {
-                            "session_id": session_id,
+                            "session_id": resolved_session,
                             "session_messages": len(messages) - new_turn_start,
                         }
                     },

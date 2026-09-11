@@ -65,6 +65,17 @@ class MemoryStore:
         """生成一个新的会话 ID。"""
         return new_id("sess_")
 
+    def resolve_session_id(self, session_id: str | None) -> str | None:
+        """解析实际使用的会话 ID。
+
+        显式传入优先；未传时回退到 ``default_session_id``，
+        该配置为空字符串则返回 ``None``（即无状态）。
+        """
+        if session_id:
+            return session_id
+        fallback = self._settings.default_session_id.strip()
+        return fallback or None
+
     def get(self, session_id: str) -> SessionState | None:
         """返回会话快照，不存在时返回 ``None``。"""
         state = self._sessions.get(session_id)

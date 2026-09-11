@@ -76,8 +76,12 @@ class MemorySettings(BaseModel):
 
     当前实现是进程内短期记忆：按 ``session_id`` 保存最近若干轮对话。
     会话数超过 ``max_sessions`` 时按 LRU 淘汰最久未使用的会话。
+
+    ``default_session_id`` 是未显式传参时使用的会话：默认 ``default``，
+    即记忆**开箱即用**；设置为空字符串可恢复「不传即无状态」的行为。
     """
 
+    default_session_id: str = "default"
     max_messages_per_session: int = Field(default=50, ge=1, le=1000)
     max_sessions: int = Field(default=1000, ge=1, le=100_000)
 

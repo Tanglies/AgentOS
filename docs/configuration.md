@@ -59,12 +59,16 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 
 ### 记忆（`memory`）
 
-会话记忆当前是**进程内短期记忆**：请求带上 `session_id` 即启用，进程重启清空。
+会话记忆当前是**进程内短期记忆**，且**默认开启**：不传 `session_id` 时落到
+`default_session_id` 指定的默认会话，进程重启清空。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
+| `AGENTOS_MEMORY__DEFAULT_SESSION_ID` | `default` | 未传 `session_id` 时使用的会话；设为空字符串则恢复无状态 |
 | `AGENTOS_MEMORY__MAX_MESSAGES_PER_SESSION` | `50` | 单会话保留的最大消息条数（1-1000） |
 | `AGENTOS_MEMORY__MAX_SESSIONS` | `1000` | 进程内会话数上限，超出按 LRU 淘汰 |
+
+**优先级**：显式 `session_id` > 显式 `history`（调用方自行管理，不读写记忆）> 默认会话。
 
 截断按**完整轮次**对齐：只保留从一个 `user` 消息开始的片段，
 避免把 `assistant(tool_calls)` 与其后的 `tool` 结果拆散 —— 那样再发给

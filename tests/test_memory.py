@@ -156,13 +156,45 @@ async def test_runtime_session_history_is_not_persisted_in_messages() -> None:
     assert [message.role.value for message in stored] == ["user", "assistant"]
 
 
-async def test_runtime_without_session_id_is_stateless() -> None:
+async def test_runtime_without_session_id_uses_default_session() -> None:
+    """记忆开箱即用：不传 session_id 时落到配置的默认会话。"""
     runtime = AgentRuntime(EchoLLMClient())
     agent = Agent(name="chat", system_prompt="be nice")
 
-    result = await runtime.run(agent, "hi")
+    first = await runtime.run(agent, "我叫小明")
+    second = await runtime.run(agent, "我叫什么")
+
+    assert first.session_id == "default"
+    assert second.session_id == "default"
+    assert len(runtime.memory) == 1
+    assert any(message.content == "我叫小明" for message in second.messages)
+
+
+async def test_runtime_default_session_can_be_disabled() -> None:
+    """把默认会话设为空字符串即可恢复无状态行为。"""
+    memory = MemoryStore(MemorySettings(default_session_id=""))
+    runtime = AgentRuntime(EchoLLMClient(), memory=memory)
+
+    result = await runtime.run(Agent(name="chat"), "hi")
 
     assert result.session_id is None
+    assert len(memory) == 0
+
+
+async def test_runtime_explicit_history_takes_precedence_over_default_session() -> None:
+    """显式传 history 时以调用方为准，不读写默认会话。"""
+    runtime = AgentRuntime(EchoLLMClient())
+
+    result = await runtime.run(
+        Agent(name="chat"), "第二句", history=[Message.user("第一句")]
+    )
+
+    assert result.session_id is None
+    assert [message.content for message in result.messages] == [
+        "第一句",
+        "第二句",
+        "Echo: 第二句",
+    ]
     assert len(runtime.memory) == 0
 
 
@@ -208,10 +240,17 @@ def test_run_accepts_session_id(client: TestClient) -> None:
     assert response.json()["session_id"] == "chat-1"
 
 
-def test_run_without_session_id_returns_null(client: TestClient) -> None:
+def test_run_without_session_id_falls_back_to_default(client: TestClient) -> None:
     body = client.post("/api/v1/runs", json={"input": "hi"}).json()
 
-    assert body["session_id"] is None
+    assert body["session_id"] == "default"
+
+
+def test_run_without_session_id_remembers_across_calls(client: TestClient) -> None:
+    client.post("/api/v1/runs", json={"input": "我叫小明"})
+    second = client.post("/api/v1/runs", json={"input": "我叫什么"}).json()
+
+    assert any(message["content"] == "我叫小明" for message in second["messages"])
 
 
 def test_session_round_trip_over_api(client: TestClient) -> None:
