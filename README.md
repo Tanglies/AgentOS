@@ -18,7 +18,7 @@
 | 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
 | Planning | 任务分解、步骤跟踪、进度注入系统提示词 | ✅ v0.1 |
 | Memory | 短期会话记忆（内存）+ 长期记忆（SQLite 持久化、关键词检索） | ✅ v0.1 |
-| Multi-Agent | 多 Agent 协作与消息路由 | 规划中 |
+| Multi-Agent | 委托式协作（`delegate_to_agent`）、深度限制与子 Agent 隔离 | ✅ v0.1 |
 | Evaluation / Observability | 评测集、指标与链路追踪 | 规划中 |
 | Docker 部署 | 镜像与一键启动 | 规划中 |
 
@@ -116,6 +116,7 @@ Runtime 会把工具声明透传给模型，并在模型请求调用时执行工
 | `recall` | 检索长期记忆 | ✅ |
 | `create_plan` | 创建执行计划（任务分解） | ✅ |
 | `update_plan_step` | 更新计划步骤状态 | ✅ |
+| `delegate_to_agent` | 把子任务委托给其他 Agent | ✅ |
 
 **安全模型**：文件工具的路径统一经过 `WorkspaceSandbox`，`..` 逃逸、外部绝对路径与
 外部符号链接都会被拒绝；`.env`、私钥、API Key、`secrets/` 等敏感文件被列入黑名单。
@@ -166,6 +167,31 @@ registry = ToolRegistry([WeatherTool()])
 
 工具执行失败（工具不存在、参数非法、内部异常）不会中断运行，而是把错误文本回填给模型，
 让模型自行决定是否修正参数或向用户说明。
+
+### 多 Agent 协作
+
+主 Agent 可以把子任务**委托**给其他已注册的 Agent，实现最小可用的消息路由：
+
+```powershell
+# 注册一个专家 Agent
+curl.exe -X POST http://127.0.0.1:8000/api/v1/agents `
+  -H "Content-Type: application/json" `
+  -d '{"name": "researcher", "description": "负责资料调研", "system_prompt": "你是技术调研专家。"}'
+
+# 主 Agent 会自动判断是否委托（工具描述里已列出可用 Agent）
+curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
+  -H "Content-Type: application/json" `
+  -d '{"input": "调研一下 Agent 平台最核心的三个能力，有专门 Agent 就交给它做"}'
+```
+
+| 约束 | 说明 |
+| --- | --- |
+| 深度限制 | 委托链最多 3 层（`max_delegation_depth`），防止 A → B → A 无限递归 |
+| 自我委托 | 直接拒绝，避免无意义递归 |
+| 子 Agent 无状态 | 看不到父级对话，因此委托任务必须**自包含** |
+| 可用 Agent | 通过 `GET /api/v1/agents` 查看，名字会动态写进工具描述 |
+
+> 通过 API 新建的 Agent 默认**不带任何工具**，需要显式在 `tools` 字段里声明。
 
 ### 流式回复（SSE）
 

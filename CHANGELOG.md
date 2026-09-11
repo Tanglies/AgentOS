@@ -16,6 +16,14 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **Multi-Agent（多 Agent 协作与消息路由）**：
+  - 把 Agent 暴露成工具：新增 `delegate_to_agent`，主 Agent 可把子任务交给专门角色
+  - `runtime/agent_tools.py`：`DelegateToAgentTool`，工具描述**运行时动态列出可用 Agent**
+  - **深度限制**：委托链最多 3 层，深度存 `contextvars`，并发运行独立计数
+  - **子 Agent 无状态运行**：父级需给出自包含任务，子 Agent 不读写父级会话记忆，避免上下文污染
+  - 拒绝自我委托（A 委托给 A），避免无意义递归
+  - `AgentRuntime` 新增 `enable_delegation` / `max_delegation_depth` 配置
+  - API 的 `ToolSummary` 改用 `tool.spec()`，展示模型真正看到的动态描述
 - **Planning（任务分解与执行计划）**：Agent 动手前先拆解任务并跟踪进度
   - `runtime/planning.py`：`ExecutionPlan` / `PlanStep` / `StepStatus`，
     计划存在 `contextvars` 里，**天然按运行隔离**，并发运行互不干扰
@@ -104,6 +112,9 @@
 - 计划注入放在**每轮循环开头**而不是运行开始：模型可能在上一轮才创建计划，
   只注入一次会导致后续轮次看不到计划
 - 测试增至 271 个用例，新增 `tests/test_planning.py`（23 个）
+- 委托工具必须在 Runtime 实例化过程中注册（它要引用 Runtime 自身），
+  因此默认 Agent 的工具清单改为在委托工具注册**之后**再生成
+- 测试增至 289 个用例，新增 `tests/test_multi_agent.py`（18 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

@@ -44,6 +44,7 @@ src/agentos/
     ├── memory_tools.py  # remember / recall 工具
     ├── planning.py      # 运行期执行计划（contextvars 隔离）
     ├── plan_tools.py    # create_plan / update_plan_step 工具
+    ├── agent_tools.py   # delegate_to_agent 多 Agent 委托
     ├── sandbox.py       # 工作区路径沙箱与敏感文件黑名单
     ├── local_tools.py   # 目录 / 文件 / 搜索 / 命令工具
     ├── web_tools.py     # 网页抓取（SSRF 防护）与联网搜索
@@ -81,6 +82,7 @@ docs/             # 架构、配置与开发文档
 | `tests/test_long_term_memory.py` | 持久化跨实例、关键词召回、记忆工具、自动召回注入与 API |
 | `tests/test_streaming.py` | SSE 解析、tool_calls 分片聚合、事件流顺序、SSE 端点 |
 | `tests/test_planning.py` | 计划模型、计划工具、运行期隔离、系统提示词注入与 API |
+| `tests/test_multi_agent.py` | 委托工具、动态 Agent 列表、深度限制、子 Agent 隔离与 API |
 | `tests/test_runtime.py` | 运行结果、历史消息、未知 Agent、空输入、迭代上限、注册表、多轮工具调用 |
 | `tests/test_api.py` | 健康探针、请求 ID、Agent CRUD、运行接口、工具查询与统一错误响应 |
 

@@ -38,6 +38,7 @@
 | 长期记忆 | `runtime/long_term_memory.py` | SQLite 持久化 + 关键词加权召回，跨会话保留 |
 | 执行计划 | `runtime/planning.py` | 运行期计划模型 + `contextvars` 隔离 |
 | 计划工具 | `runtime/plan_tools.py` | `create_plan` / `update_plan_step` |
+| 多 Agent | `runtime/agent_tools.py` | `delegate_to_agent`：把 Agent 暴露成工具，含深度限制 |
 | LLM 契约 | `llm/base.py` | `LLMMessage` / `LLMResponse` / `StreamChunk` / `LLMClient` |
 | LLM 实现 | `llm/echo.py`, `llm/openai_compatible.py` | 回显客户端与 OpenAI 兼容 HTTP 客户端 |
 | LLM 工厂 | `llm/factory.py` | provider 注册表与实例化 |
@@ -95,6 +96,8 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 流式不做重试 | 已开始接收数据后重放会导致内容重复 |
 | 执行计划用 `contextvars` 存储 | 按运行自动隔离，并发安全，无需显式清理 |
 | 计划每轮重新注入 | 模型可能中途才创建或更新计划，只注入一次会看不到进度 |
+| Agent 以工具形式暴露 | 复用既有的工具调用链路做消息路由，不需要另造一套编排引擎 |
+| 子 Agent 无状态运行 | 父子共用会话记忆会让两个上下文互相污染，任务自包含更可预测 |
 
 ## 扩展点
 
@@ -107,5 +110,6 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 
 ## v0.1 边界
 
-当前版本是工程基座，**已实现 Tool Calling、会话短期记忆与长期记忆（关键词检索）**。
-**尚未实现**：向量检索、Multi-Agent、鉴权与配额、评测体系、指标与链路追踪、容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。
+当前版本已实现阶段 1 的全部能力：Tool Calling、Planning、短期与长期记忆、
+Multi-Agent 委托、流式回复。**尚未实现**：向量检索、鉴权与配额、评测体系、
+指标与链路追踪、容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。

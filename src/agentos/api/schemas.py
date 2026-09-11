@@ -45,7 +45,12 @@ class ToolSummary(BaseModel):
 
     @classmethod
     def from_tool(cls, tool: Tool) -> ToolSummary:
-        return cls(name=tool.name, description=tool.description, parameters=tool.parameters)
+        # 用 spec() 而不是类属性：像 delegate_to_agent 这类工具的描述是
+        # 运行时动态生成的（列出当前可用 Agent），API 应展示模型真正看到的内容
+        spec = tool.spec()
+        return cls(
+            name=spec.name, description=spec.description, parameters=spec.parameters
+        )
 
 
 class ToolListResponse(BaseModel):

@@ -36,6 +36,7 @@ from agentos.llm.base import (
     ToolCall,
 )
 from agentos.runtime.agent import Agent
+from agentos.runtime.agent_tools import DEFAULT_MAX_DEPTH, DelegateToAgentTool
 from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
@@ -104,15 +105,30 @@ class AgentRuntime:
         tools: ToolRegistry | None = None,
         memory: MemoryStore | None = None,
         long_term: LongTermMemory | None = None,
+        enable_delegation: bool = True,
+        max_delegation_depth: int = DEFAULT_MAX_DEPTH,
     ) -> None:
         self._llm = llm_client
         self._settings = settings or RuntimeSettings()
-        self._registry = (
-            registry if registry is not None else create_default_registry(self._settings)
-        )
         self._tools = tools if tools is not None else create_default_tool_registry()
         self._memory = memory if memory is not None else MemoryStore()
         self._long_term = long_term
+
+        # 委托工具需要引用 Runtime 自身，只能在实例化过程中注册
+        if enable_delegation:
+            self._tools.register(
+                DelegateToAgentTool(self, max_depth=max_delegation_depth),
+                overwrite=True,
+            )
+
+        # 默认 Agent 的工具清单必须在委托工具注册之后再生成，否则会漏掉它
+        self._registry = (
+            registry
+            if registry is not None
+            else create_default_registry(
+                self._settings, tools=[tool.name for tool in self._tools.list()]
+            )
+        )
 
     @property
     def llm_client(self) -> LLMClient:
@@ -145,6 +161,7 @@ class AgentRuntime:
         *,
         history: Sequence[Message] | None = None,
         session_id: str | None = None,
+        stateless: bool = False,
     ) -> RunResult:
         """执行一次 Agent 运行并返回结构化结果。
 
@@ -153,7 +170,11 @@ class AgentRuntime:
         """
         result: RunResult | None = None
         async for event in self.run_stream(
-            agent, input_text, history=history, session_id=session_id
+            agent,
+            input_text,
+            history=history,
+            session_id=session_id,
+            stateless=stateless,
         ):
             if event.type == "end":
                 result = event.result
@@ -169,6 +190,7 @@ class AgentRuntime:
         *,
         history: Sequence[Message] | None = None,
         session_id: str | None = None,
+        stateless: bool = False,
     ) -> AsyncIterator[RunEvent]:
         """流式执行一次 Agent 运行，逐段产出 :class:`RunEvent`。
 
@@ -186,14 +208,17 @@ class AgentRuntime:
         if not input_text.strip():
             raise ValidationError("input must not be empty", details={"agent": resolved.name})
 
-        # 优先级：显式 session_id > 显式 history（无状态）> 配置的默认会话。
-        # 保留 history 的优先级，避免默认记忆开启后破坏「调用方自行管理历史」的用法。
-        if history and not session_id:
+        # 优先级：stateless > 显式 session_id > 显式 history（无状态）> 默认会话。
+        # stateless 用于子 Agent 委托：父级已给出自包含任务，不应复用任何会话记忆。
+        if stateless:
             resolved_session: str | None = None
+            history = None
+        elif history and not session_id:
+            resolved_session = None
         else:
             resolved_session = self._memory.resolve_session_id(session_id)
-        if resolved_session:
-            history = self._memory.history(resolved_session)
+            if resolved_session:
+                history = self._memory.history(resolved_session)
 
         run_id = new_id("run_")
         run_token = set_run_id(run_id)
