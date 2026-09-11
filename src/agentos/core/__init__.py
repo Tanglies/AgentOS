@@ -1,6 +1,11 @@
 """核心基础设施：配置、日志、请求上下文与异常体系。"""
 
-from agentos.core.config import Settings, get_settings, reset_settings_cache
+from agentos.core.config import (
+    Settings,
+    ToolsSettings,
+    get_settings,
+    reset_settings_cache,
+)
 from agentos.core.context import (
     current_context,
     get_request_id,
@@ -33,6 +38,7 @@ __all__ = [
     "LLMTimeoutError",
     "NotFoundError",
     "Settings",
+    "ToolsSettings",
     "ValidationError",
     "configure_logging",
     "current_context",

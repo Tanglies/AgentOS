@@ -29,7 +29,9 @@
 | Agent | `runtime/agent.py` | Agent 定义与消息组装 |
 | 注册表 | `runtime/registry.py` | 进程内 Agent 注册与查询 |
 | 工具基座 | `runtime/tools.py` | `Tool` 抽象、`ToolRegistry` 注册与执行、JSON Schema 子集校验 |
-| 内置工具 | `runtime/builtin_tools.py` | `get_current_time` / `calculate` 两个零依赖示例工具 |
+| 内置工具 | `runtime/builtin_tools.py` | 通用工具与默认工具注册表工厂 |
+| 路径沙箱 | `runtime/sandbox.py` | 把文件操作约束在 `workspace_root` 内，并拦截敏感文件 |
+| 本地工具 | `runtime/local_tools.py` | 目录浏览、文件读写、文本搜索、命令执行 |
 | 运行内核 | `runtime/runtime.py` | 迭代调用模型、统计用量、产出 `RunResult` |
 | LLM 契约 | `llm/base.py` | `LLMMessage` / `LLMResponse` / `LLMClient` |
 | LLM 实现 | `llm/echo.py`, `llm/openai_compatible.py` | 回显客户端与 OpenAI 兼容 HTTP 客户端 |
@@ -76,6 +78,9 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 纯 ASGI 中间件 | 规避 `BaseHTTPMiddleware` 的额外任务与流式响应问题 |
 | 工具参数只校验 JSON Schema 子集 | 只覆盖 `required` / `type` / `enum`，避免为此引入 `jsonschema` 依赖 |
 | 工具执行失败回填而非抛出 | 让模型有机会自我修正参数，单次工具故障不中断整次会话 |
+| 文件工具统一走路径沙箱 | 模型可能被提示注入诱导读写任意路径，沙箱把影响面限制在 `workspace_root` |
+| 敏感文件黑名单 | 避免 `.env`、私钥等凭据被读进模型上下文或写入日志 |
+| `run_command` 默认关闭 | shell 无法被路径沙箱约束，只能用显式开关 + 超时 + 输出截断降低风险 |
 
 ## 扩展点
 

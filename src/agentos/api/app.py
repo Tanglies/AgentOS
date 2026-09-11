@@ -23,6 +23,7 @@ from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
 from agentos.core.logging import configure_logging, get_logger
 from agentos.llm.factory import create_llm_client
+from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.registry import create_default_registry
 from agentos.runtime.runtime import AgentRuntime
 
@@ -40,10 +41,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         llm_client = create_llm_client(resolved.llm)
+        tool_registry = create_default_tool_registry(resolved.tools)
         runtime = AgentRuntime(
             llm_client,
             settings=resolved.runtime,
-            registry=create_default_registry(resolved.runtime),
+            registry=create_default_registry(
+                resolved.runtime, tools=[tool.name for tool in tool_registry.list()]
+            ),
+            tools=tool_registry,
         )
         app.state.llm_client = llm_client
         app.state.runtime = runtime

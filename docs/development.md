@@ -39,7 +39,9 @@ src/agentos/
 ├── llm/          # 模型访问层（含 ToolSpec / ToolCall 协议模型）
 └── runtime/      # Agent 领域模型与执行内核
     ├── tools.py         # Tool 抽象、ToolRegistry、参数校验与执行
-    └── builtin_tools.py # 内置示例工具
+    ├── sandbox.py       # 工作区路径沙箱与敏感文件黑名单
+    ├── local_tools.py   # 目录 / 文件 / 搜索 / 命令工具
+    └── builtin_tools.py # 通用工具与默认注册表工厂
 tests/            # 与 src 结构对应的测试文件
 docs/             # 架构、配置与开发文档
 ```
@@ -67,6 +69,7 @@ docs/             # 架构、配置与开发文档
 | `tests/test_logging.py` | JSON / console 格式、上下文注入、脱敏、幂等配置 |
 | `tests/test_llm_clients.py` | echo 行为、工厂解析、请求构造、重试、错误与超时映射、tools / tool_calls 编解码 |
 | `tests/test_tools.py` | 工具声明、JSON Schema 子集校验、注册表、执行与错误回填、内置工具 |
+| `tests/test_local_tools.py` | 路径沙箱、敏感文件拦截、目录/文件/搜索/写入、命令开关与超时 |
 | `tests/test_runtime.py` | 运行结果、历史消息、未知 Agent、空输入、迭代上限、注册表、多轮工具调用 |
 | `tests/test_api.py` | 健康探针、请求 ID、Agent CRUD、运行接口、工具查询与统一错误响应 |
 

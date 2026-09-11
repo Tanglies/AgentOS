@@ -57,6 +57,27 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 | `AGENTOS_RUNTIME__MAX_ITERATIONS` | `8` | 单次运行的最大迭代轮数（1-64），超出抛 `AgentRuntimeError` |
 | `AGENTOS_RUNTIME__SYSTEM_PROMPT` | `You are AgentOS, a helpful AI agent.` | 默认助手的系统提示词 |
 
+### 工具（`tools`）
+
+本地工具让 Agent 具备读写工作区、搜索文本与执行命令的能力。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_TOOLS__WORKSPACE_ROOT` | `.` | 文件工具的沙箱根目录，越界路径一律拒绝 |
+| `AGENTOS_TOOLS__ALLOW_FILE_WRITE` | `true` | 是否启用 `write_file`；覆盖已有文件仍需传 `overwrite=true` |
+| `AGENTOS_TOOLS__ALLOW_SHELL` | `false` | 是否启用 `run_command`（**危险，默认关闭**） |
+| `AGENTOS_TOOLS__SHELL_TIMEOUT_SECONDS` | `30` | 命令执行超时（1-600 秒） |
+| `AGENTOS_TOOLS__MAX_READ_BYTES` | `256000` | 单文件读取上限（字节） |
+| `AGENTOS_TOOLS__MAX_OUTPUT_CHARS` | `16000` | 工具输出回填给模型的最大字符数 |
+
+**安全模型**
+
+- 文件工具的路径统一经过 `WorkspaceSandbox` 解析：`..` 逃逸、外部绝对路径、
+  指向外部的符号链接都会被拒绝
+- 敏感文件黑名单：`.env` 与 `.env.*`（`.env.example` 除外）、`*.key` / `*.pem` / `*.p12`、
+  `id_rsa` 等私钥、`*apikey*.csv`，以及 `secrets/`、`.ssh/`、`.aws/`、`.gnupg/`、`.kube/` 目录
+- `run_command` 执行的是真实 shell，**命令内部不受沙箱约束**，请只在受信任环境开启
+
 ### API（`api`）
 
 | 变量 | 默认值 | 说明 |
@@ -101,3 +122,5 @@ register_provider("my_provider", lambda settings: MyLLMClient(settings))
 - `.env` 已被 `.gitignore` 忽略，切勿提交真实密钥
 - API Key 使用 `SecretStr` 承载，`model_dump_json()` 输出为 `**********`
 - 日志中命中 `redact_keys` 的字段统一替换为 `***`
+- `run_command` 默认关闭；开启等于把宿主机 shell 交给模型，请自行评估风险
+- 文件工具默认只能操作 `workspace_root`，但仍会读取该项目内的全部源码，注意仓库边界

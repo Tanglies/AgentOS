@@ -71,6 +71,24 @@ class APISettings(BaseModel):
     cors_origins: tuple[str, ...] = ()
 
 
+class ToolsSettings(BaseModel):
+    """本地工具（文件 / 命令）配置。
+
+    这些配置决定 Agent 能在多大范围内操作宿主机：
+
+    - ``workspace_root``：所有文件工具的沙箱根目录，越界路径直接拒绝
+    - ``allow_file_write``：是否允许写文件（覆盖已有文件还需显式确认）
+    - ``allow_shell``：是否允许执行 shell 命令，**默认关闭**
+    """
+
+    workspace_root: str = "."
+    allow_file_write: bool = True
+    allow_shell: bool = False
+    shell_timeout_seconds: float = Field(default=30.0, gt=0, le=600)
+    max_read_bytes: int = Field(default=256_000, gt=0)
+    max_output_chars: int = Field(default=16_000, gt=0)
+
+
 class Settings(BaseSettings):
     """AgentOS 全局配置。"""
 
@@ -90,6 +108,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     api: APISettings = Field(default_factory=APISettings)
+    tools: ToolsSettings = Field(default_factory=ToolsSettings)
 
     @property
     def is_production(self) -> bool:

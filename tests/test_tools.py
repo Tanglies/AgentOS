@@ -310,4 +310,6 @@ async def test_get_current_time_tool_rejects_out_of_range_offset() -> None:
 def test_default_tool_registry_contains_builtin_tools() -> None:
     registry = create_default_tool_registry()
 
-    assert {tool.name for tool in registry.list()} == {"calculate", "get_current_time"}
+    names = {tool.name for tool in registry.list()}
+    # 通用工具始终存在；本地工具随配置增减，因此用子集断言
+    assert {"calculate", "get_current_time"} <= names

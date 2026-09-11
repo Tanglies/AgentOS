@@ -15,6 +15,7 @@
 | 日志系统 | 结构化日志（console / json）、请求上下文、敏感字段脱敏 | ✅ v0.1 |
 | Agent 管理 API | 注册、查询、列表、注销 | ✅ v0.1 |
 | Tool Calling | 工具注册、参数校验、调用与结果回填 | ✅ v0.1 |
+| 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
 | Memory | 会话记忆与长期记忆 | 规划中 |
 | Multi-Agent | 多 Agent 协作与消息路由 | 规划中 |
 | Evaluation / Observability | 评测集、指标与链路追踪 | 规划中 |
@@ -97,7 +98,22 @@ $env:AGENTOS_LLM__MODEL    = "deepseek-chat"
 Agent 通过 `tools` 字段声明可用工具。工具由**服务端代码注册**（不接受通过 HTTP 注入可执行代码），
 Runtime 会把工具声明透传给模型，并在模型请求调用时执行工具、把结果回填给模型。
 
-内置两个示例工具：`get_current_time`（按 UTC 偏移返回时间）与 `calculate`（AST 白名单算术求值，无 `eval`）。
+内置工具：
+
+| 工具 | 说明 | 默认 |
+| --- | --- | --- |
+| `get_current_time` | 按 UTC 偏移返回当前时间 | ✅ |
+| `calculate` | AST 白名单算术求值（不使用 `eval`） | ✅ |
+| `list_directory` | 列出工作区目录内容 | ✅ |
+| `read_file` | 读取工作区文本文件 | ✅ |
+| `search_text` | 在工作区内按正则搜索 | ✅ |
+| `write_file` | 写入文本文件（覆盖需 `overwrite=true`） | ✅ |
+| `run_command` | 执行 shell 命令 | ⚠️ **默认关闭** |
+
+**安全模型**：文件工具的路径统一经过 `WorkspaceSandbox`，`..` 逃逸、外部绝对路径与
+外部符号链接都会被拒绝；`.env`、私钥、API Key、`secrets/` 等敏感文件被列入黑名单。
+`run_command` 执行的是真实 shell，**命令内部不受沙箱约束**，需显式设置
+`AGENTOS_TOOLS__ALLOW_SHELL=true` 才会启用。详见 [配置说明](docs/configuration.md)。
 
 ```powershell
 # 查看服务端已注册的工具

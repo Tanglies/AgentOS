@@ -5,12 +5,11 @@ v0.1 使用内存实现；后续可替换为数据库或配置中心支持的实
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from agentos.core.config import RuntimeSettings
 from agentos.core.exceptions import ConflictError, NotFoundError
 from agentos.runtime.agent import Agent
-from agentos.runtime.builtin_tools import DEFAULT_AGENT_TOOLS
 
 
 class AgentRegistry:
@@ -57,15 +56,20 @@ class AgentRegistry:
         return len(self._agents)
 
 
-def create_default_registry(settings: RuntimeSettings) -> AgentRegistry:
-    """创建包含默认助手 Agent 的注册表。"""
+def create_default_registry(
+    settings: RuntimeSettings, *, tools: Sequence[str] = ()
+) -> AgentRegistry:
+    """创建包含默认助手 Agent 的注册表。
+
+    ``tools`` 为该 Agent 可用的工具名，通常传入工具注册表中的全部名称。
+    """
     return AgentRegistry(
         [
             Agent(
                 name=settings.default_agent,
                 description="AgentOS 内置通用助手，用于验证服务链路。",
                 system_prompt=settings.system_prompt,
-                tools=list(DEFAULT_AGENT_TOOLS),
+                tools=list(tools),
             )
         ]
     )

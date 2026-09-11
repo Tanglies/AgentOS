@@ -15,12 +15,11 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from agentos.core.config import ToolsSettings
+from agentos.runtime.local_tools import create_local_tools
 from agentos.runtime.tools import Tool, ToolRegistry
 
 MAX_POWER_EXPONENT = 64
-
-# 默认助手 Agent 启用的内置工具；名称需与下方工具类的 name 保持一致。
-DEFAULT_AGENT_TOOLS: tuple[str, ...] = ("get_current_time", "calculate")
 
 _ALLOWED_BINARY_OPS: dict[type[ast.AST], Callable[[Any, Any], Any]] = {
     ast.Add: operator.add,
@@ -125,6 +124,9 @@ class GetCurrentTimeTool(Tool):
         return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S UTC%z")
 
 
-def create_default_tool_registry() -> ToolRegistry:
-    """创建包含全部内置工具的工具注册表。"""
-    return ToolRegistry([GetCurrentTimeTool(), CalculateTool()])
+def create_default_tool_registry(settings: ToolsSettings | None = None) -> ToolRegistry:
+    """创建默认工具注册表：通用工具 + 按配置启用的本地工具。"""
+    resolved = settings or ToolsSettings()
+    tools: list[Tool] = [GetCurrentTimeTool(), CalculateTool()]
+    tools.extend(create_local_tools(resolved))
+    return ToolRegistry(tools)

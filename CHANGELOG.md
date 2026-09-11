@@ -16,6 +16,14 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **本地工具集**：让 Agent 具备编码助手式的文件与命令能力
+  - `runtime/sandbox.py`：`WorkspaceSandbox` 路径沙箱（拒绝 `..` 逃逸、外部绝对路径、
+    指向外部的符号链接）与敏感文件黑名单（`.env`、私钥、API Key、`secrets/` 等）
+  - `runtime/local_tools.py`：`list_directory` / `read_file` / `search_text` / `write_file` / `run_command`
+  - `write_file` 默认拒绝覆盖已有文件，需模型显式传入 `overwrite=true`
+  - `run_command` **默认关闭**，需 `AGENTOS_TOOLS__ALLOW_SHELL=true` 显式开启，带超时与输出截断
+  - 新增 `ToolsSettings` 配置段：沙箱根目录、写/命令开关、读取与输出限额
+  - 工具注册表按配置动态生成，未启用的能力不会出现在暴露给模型的工具列表中
 - `examples/qwen_smoke.py`：真实模型冒烟测试脚本，走「配置 → LLM 客户端 → Agent Runtime」全链路，
   输出耗时与 token 消耗，支持 `--model` / `--models` 切换模型
 - `.vscode/tasks.json`：VS Code 一键任务（启动服务、热重载、真实模型冒烟、测试、代码检查、安装依赖）
@@ -38,6 +46,10 @@
 - 工具执行失败不抛异常而是回填错误文本，让模型有机会自我修正，同时保证单次工具故障不拖垮整个会话
 - 内置时间工具刻意使用 `datetime.timezone` 固定偏移而非 `zoneinfo`：后者在 Windows 上需要额外的 `tzdata` 包
 - 测试增至 97 个用例，新增 `tests/test_tools.py`（34 个）并扩展 Runtime / API / LLM 客户端的工具调用覆盖
+- 本地工具采用「路径沙箱 + 敏感文件黑名单」双重防护；符号链接逃逸由 `Path.resolve()` 一并覆盖
+- `run_command` 不做沙箱（shell 内部可访问任意路径），只能靠默认关闭 + 超时 + 输出截断降低风险
+- 搜索遇到敏感文件时静默跳过而非报错，避免单个 `.env` 让整次搜索失败
+- 测试增至 132 个用例，新增 `tests/test_local_tools.py`（35 个）覆盖沙箱、限额与命令开关
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），
