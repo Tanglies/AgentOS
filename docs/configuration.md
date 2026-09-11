@@ -1,0 +1,103 @@
+# 配置说明
+
+## 加载优先级
+
+从高到低：
+
+1. **环境变量**：前缀 `AGENTOS_`，嵌套字段用 `__` 分隔
+2. **`.env` 文件**：项目根目录，参考 `.env.example`
+3. **代码默认值**：见 `src/agentos/core/config.py`
+
+示例：设置 LLM 提供方与模型
+
+```powershell
+$env:AGENTOS_LLM__PROVIDER = "openai_compatible"
+$env:AGENTOS_LLM__MODEL = "deepseek-chat"
+```
+
+复杂类型（列表、字典）在环境变量中需使用 JSON，例如：
+
+```powershell
+$env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
+```
+
+配置对象默认缓存（`get_settings()` 使用 `lru_cache`），测试中可调用 `reset_settings_cache()` 清空。
+
+## 配置项
+
+### 应用级
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_APP_NAME` | `AgentOS` | 应用名，出现在日志与 OpenAPI 标题 |
+| `AGENTOS_ENVIRONMENT` | `local` | `local` / `dev` / `staging` / `production` |
+| `AGENTOS_DEBUG` | `false` | 调试开关 |
+
+### LLM（`llm`）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_LLM__PROVIDER` | `echo` | `echo` / `openai_compatible` / `openai`（后两者等价） |
+| `AGENTOS_LLM__MODEL` | `gpt-4o-mini` | 模型名，`echo` 提供方忽略此值 |
+| `AGENTOS_LLM__BASE_URL` | `https://api.openai.com/v1` | 服务地址，需兼容 `/chat/completions` |
+| `AGENTOS_LLM__API_KEY` | 空 | API Key，日志与序列化中自动脱敏 |
+| `AGENTOS_LLM__TIMEOUT_SECONDS` | `60` | 单次请求超时（秒） |
+| `AGENTOS_LLM__MAX_RETRIES` | `2` | 可重试错误的最大重试次数（0-10） |
+| `AGENTOS_LLM__TEMPERATURE` | `0.0` | 默认采样温度（0.0-2.0） |
+| `AGENTOS_LLM__MAX_TOKENS` | 空 | 默认最大输出 token |
+
+可重试状态码：`408 409 425 429 500 502 503 504`；重试使用指数退避。
+超时映射为 `LLMTimeoutError`（HTTP 504），上游 4xx/5xx 映射为 `LLMProviderError`（HTTP 502）。
+
+### Runtime（`runtime`）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_RUNTIME__DEFAULT_AGENT` | `assistant` | 默认 Agent 名称，`POST /api/v1/runs` 未指定时使用 |
+| `AGENTOS_RUNTIME__MAX_ITERATIONS` | `8` | 单次运行的最大迭代轮数（1-64），超出抛 `AgentRuntimeError` |
+| `AGENTOS_RUNTIME__SYSTEM_PROMPT` | `You are AgentOS, a helpful AI agent.` | 默认助手的系统提示词 |
+
+### API（`api`）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_API__HOST` | `127.0.0.1` | 监听地址 |
+| `AGENTOS_API__PORT` | `8000` | 监听端口 |
+| `AGENTOS_API__ROOT_PATH` | 空 | 反向代理子路径 |
+| `AGENTOS_API__ENABLE_DOCS` | `true` | 是否暴露 `/docs`、`/redoc`、`/openapi.json` |
+| `AGENTOS_API__CORS_ORIGINS` | `[]` | 允许的跨域来源，JSON 数组 |
+
+### 日志（`logging`）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_LOGGING__LEVEL` | `INFO` | 日志级别，大小写不敏感 |
+| `AGENTOS_LOGGING__FORMAT` | `console` | `console`（人读）或 `json`（采集） |
+| `AGENTOS_LOGGING__REDACT_KEYS` | `["api_key","authorization","password","secret","token"]` | 需要脱敏的字段名（大小写不敏感、递归匹配） |
+
+JSON 格式示例：
+
+```json
+{"level":"INFO","logger":"agentos.runtime.runtime","message":"agent run completed","request_id":"req_3b84...","run_id":"run_3f2a...","agent":"assistant","iterations":1,"duration_ms":0.161,"total_tokens":12,"timestamp":"2026-09-11T02:34:11.512Z"}
+```
+
+## 提供方说明
+
+| Provider | 用途 | 必需配置 |
+| --- | --- | --- |
+| `echo` | 本地开发与测试，回显最后一条用户消息，无外部依赖 | 无 |
+| `openai_compatible` | OpenAI、DeepSeek、通义兼容模式、vLLM、Ollama 等 | `BASE_URL`、`MODEL`、通常需要 `API_KEY` |
+
+新增自有提供方：实现 `agentos.llm.base.LLMClient`，然后
+
+```python
+from agentos.llm import register_provider
+
+register_provider("my_provider", lambda settings: MyLLMClient(settings))
+```
+
+## 安全注意
+
+- `.env` 已被 `.gitignore` 忽略，切勿提交真实密钥
+- API Key 使用 `SecretStr` 承载，`model_dump_json()` 输出为 `**********`
+- 日志中命中 `redact_keys` 的字段统一替换为 `***`
