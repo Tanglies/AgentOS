@@ -6,6 +6,8 @@ from agentos.llm.base import (
     LLMMessage,
     LLMResponse,
     TokenUsage,
+    ToolCall,
+    ToolSpec,
 )
 from agentos.llm.echo import EchoLLMClient
 from agentos.llm.factory import available_providers, create_llm_client, register_provider
@@ -19,6 +21,8 @@ __all__ = [
     "LLMResponse",
     "OpenAICompatibleLLMClient",
     "TokenUsage",
+    "ToolCall",
+    "ToolSpec",
     "available_providers",
     "create_llm_client",
     "register_provider",

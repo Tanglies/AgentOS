@@ -36,8 +36,10 @@ src/agentos/
 │   ├── schemas.py    # 请求与响应模型
 │   └── routes/       # 按资源拆分的路由模块
 ├── core/         # 与业务无关的基础设施
-├── llm/          # 模型访问层
+├── llm/          # 模型访问层（含 ToolSpec / ToolCall 协议模型）
 └── runtime/      # Agent 领域模型与执行内核
+    ├── tools.py         # Tool 抽象、ToolRegistry、参数校验与执行
+    └── builtin_tools.py # 内置示例工具
 tests/            # 与 src 结构对应的测试文件
 docs/             # 架构、配置与开发文档
 ```
@@ -53,6 +55,7 @@ docs/             # 架构、配置与开发文档
 
 - 使用 `pytest` + `pytest-asyncio`（`asyncio_mode = "auto"`，异步测试无需装饰器）
 - 外部模型调用统一使用 `httpx.MockTransport` 或自定义 `LLMClient` 替身，测试不依赖网络
+- 工具执行通过自定义 `Tool` 替身验证，不依赖真实外部 API
 - `conftest.py` 中的 `clean_agentos_env` 会自动清理宿主环境变量，保证用例只依赖代码默认值
 - 新增能力时至少覆盖：正常路径、边界条件、错误映射
 
@@ -62,9 +65,10 @@ docs/             # 架构、配置与开发文档
 | --- | --- |
 | `tests/test_config.py` | 默认值、环境变量覆盖、密钥脱敏、非法配置拒绝、缓存 |
 | `tests/test_logging.py` | JSON / console 格式、上下文注入、脱敏、幂等配置 |
-| `tests/test_llm_clients.py` | echo 行为、工厂解析、请求构造、重试、错误与超时映射 |
-| `tests/test_runtime.py` | 运行结果、历史消息、未知 Agent、空输入、迭代上限、注册表 |
-| `tests/test_api.py` | 健康探针、请求 ID、Agent CRUD、运行接口与统一错误响应 |
+| `tests/test_llm_clients.py` | echo 行为、工厂解析、请求构造、重试、错误与超时映射、tools / tool_calls 编解码 |
+| `tests/test_tools.py` | 工具声明、JSON Schema 子集校验、注册表、执行与错误回填、内置工具 |
+| `tests/test_runtime.py` | 运行结果、历史消息、未知 Agent、空输入、迭代上限、注册表、多轮工具调用 |
+| `tests/test_api.py` | 健康探针、请求 ID、Agent CRUD、运行接口、工具查询与统一错误响应 |
 
 ## 代码规范
 

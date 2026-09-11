@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -14,11 +15,48 @@ import httpx
 
 from agentos.core.exceptions import ConfigurationError, LLMProviderError, LLMTimeoutError
 from agentos.core.logging import get_logger
-from agentos.llm.base import CompletionOptions, LLMClient, LLMMessage, LLMResponse, TokenUsage
+from agentos.llm.base import (
+    CompletionOptions,
+    LLMClient,
+    LLMMessage,
+    LLMResponse,
+    TokenUsage,
+    ToolCall,
+)
 
 logger = get_logger(__name__)
 
 RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+
+def _parse_tool_calls(raw_calls: Any) -> list[ToolCall] | None:
+    """把提供方返回的 ``tool_calls`` 归一化为内部模型。
+
+    对字段缺失或格式异常保持宽容：跳过无法识别的条目，
+    避免个别脏数据导致整个响应解析失败。
+    """
+    if not isinstance(raw_calls, list) or not raw_calls:
+        return None
+
+    calls: list[ToolCall] = []
+    for index, item in enumerate(raw_calls):
+        if not isinstance(item, dict):
+            continue
+        function = item.get("function") or {}
+        name = function.get("name")
+        if not name:
+            continue
+        arguments = function.get("arguments")
+        if not isinstance(arguments, str):
+            arguments = json.dumps(arguments or {}, ensure_ascii=False)
+        calls.append(
+            ToolCall(
+                id=str(item.get("id") or f"call_{index}"),
+                name=str(name),
+                arguments=arguments,
+            )
+        )
+    return calls or None
 
 
 class OpenAICompatibleLLMClient(LLMClient):
@@ -138,6 +176,9 @@ class OpenAICompatibleLLMClient(LLMClient):
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
+        if options and options.tools:
+            payload["tools"] = [tool.to_provider_payload() for tool in options.tools]
+
         if options and options.extra:
             payload.update(options.extra)
         return payload
@@ -186,6 +227,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             model=data.get("model") or self._model,
             finish_reason=first_choice.get("finish_reason"),
             usage=usage,
+            tool_calls=_parse_tool_calls(message.get("tool_calls")),
             raw=data,
         )
         logger.debug(

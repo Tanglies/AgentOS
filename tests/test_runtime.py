@@ -15,7 +15,14 @@ from agentos.core.exceptions import (
     ValidationError,
 )
 from agentos.llm import EchoLLMClient
-from agentos.llm.base import CompletionOptions, LLMClient, LLMMessage, LLMResponse
+from agentos.llm.base import (
+    CompletionOptions,
+    LLMClient,
+    LLMMessage,
+    LLMResponse,
+    TokenUsage,
+    ToolCall,
+)
 from agentos.runtime import (
     Agent,
     AgentRegistry,
@@ -180,3 +187,145 @@ def test_agent_messages_convert_to_llm_messages() -> None:
     assert converted.role == "tool"
     assert converted.tool_call_id == "call_1"
     assert converted.name == "search"
+
+class ToolCallingLLMClient(LLMClient):
+    """首轮请求工具调用，次轮基于工具结果给出最终回答。"""
+
+    provider = "tool-calling"
+
+    def __init__(self) -> None:
+        self.calls: list[list[LLMMessage]] = []
+        self.options: list[CompletionOptions | None] = []
+
+    async def complete(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        options: CompletionOptions | None = None,
+    ) -> LLMResponse:
+        self.calls.append(list(messages))
+        self.options.append(options)
+        if len(self.calls) == 1:
+            return LLMResponse(
+                content="",
+                model="tool-calling",
+                finish_reason="tool_calls",
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                tool_calls=[
+                    ToolCall(id="call_1", name="calculate", arguments='{"expression": "6*7"}')
+                ],
+            )
+        return LLMResponse(
+            content="结果是 42",
+            model="tool-calling",
+            finish_reason="stop",
+            usage=TokenUsage(prompt_tokens=20, completion_tokens=8, total_tokens=28),
+        )
+
+
+class AlwaysToolCallLLMClient(LLMClient):
+    """每轮都请求调用工具，用于验证工具循环的迭代上限。"""
+
+    provider = "always-tool"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        options: CompletionOptions | None = None,
+    ) -> LLMResponse:
+        self.calls += 1
+        return LLMResponse(
+            content="",
+            model="always-tool",
+            finish_reason="tool_calls",
+            tool_calls=[
+                ToolCall(
+                    id=f"call_{self.calls}",
+                    name="calculate",
+                    arguments='{"expression": "1+1"}',
+                )
+            ],
+        )
+
+
+class RecordingEchoClient(EchoLLMClient):
+    """记录每次调用选项的 echo 客户端。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.options: list[CompletionOptions | None] = []
+
+    async def complete(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        options: CompletionOptions | None = None,
+    ) -> LLMResponse:
+        self.options.append(options)
+        return await super().complete(messages, options=options)
+
+
+async def test_runtime_executes_tool_call_and_feeds_result_back() -> None:
+    client = ToolCallingLLMClient()
+    runtime = AgentRuntime(client)
+    agent = Agent(name="calc", tools=["calculate"])
+
+    result = await runtime.run(agent, "6*7 等于多少")
+
+    assert result.output == "结果是 42"
+    assert result.iterations == 2
+    assert result.tool_call_count == 1
+    assert result.usage is not None
+    # token 用量跨轮累加
+    assert result.usage.total_tokens == 43
+    assert [message.role.value for message in result.messages] == [
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
+
+    tool_message = result.messages[2]
+    assert tool_message.tool_call_id == "call_1"
+    assert tool_message.name == "calculate"
+    assert tool_message.content == "6*7 = 42"
+
+    # 工具声明被透传给 LLM
+    assert client.options[0] is not None
+    assert [spec.name for spec in client.options[0].tools or []] == ["calculate"]
+    # 第二轮请求里带上了 tool 结果
+    assert any(message.role == "tool" for message in client.calls[1])
+
+
+async def test_runtime_agent_without_tools_sends_no_tool_specs() -> None:
+    client = RecordingEchoClient()
+    runtime = AgentRuntime(client)
+
+    await runtime.run(Agent(name="plain"), "hi")
+
+    assert client.options[0] is not None
+    assert client.options[0].tools is None
+
+
+async def test_runtime_rejects_unknown_tool_name() -> None:
+    runtime = AgentRuntime(EchoLLMClient())
+
+    with pytest.raises(NotFoundError) as excinfo:
+        await runtime.run(Agent(name="broken", tools=["not-registered"]), "hi")
+
+    assert excinfo.value.details["tool"] == "not-registered"
+
+
+async def test_runtime_tool_loop_is_bounded_by_max_iterations() -> None:
+    client = AlwaysToolCallLLMClient()
+    runtime = AgentRuntime(client, settings=RuntimeSettings(max_iterations=3))
+
+    with pytest.raises(AgentRuntimeError) as excinfo:
+        await runtime.run(Agent(name="loopy", tools=["calculate"]), "loop")
+
+    assert client.calls == 3
+    assert excinfo.value.details["tool_call_count"] == 3

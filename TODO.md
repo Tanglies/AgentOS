@@ -14,7 +14,9 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 
 ## 阶段 1：Agent 核心能力
 
-- [ ] Tool Calling：工具注册表、参数校验、调用与结果回填（Runtime 已预留 `_should_continue` 扩展点）
+- [x] Tool Calling：工具注册表、参数校验、调用与结果回填（Runtime 已预留 `_should_continue` 扩展点）
+  - 已实现：`Tool` 抽象 / `ToolRegistry` / JSON Schema 子集校验 / 错误回填 / 多轮循环 / `GET /api/v1/tools`
+  - 内置工具：`get_current_time`、`calculate`；自定义工具只需继承 `Tool` 并在注册表登记
 - [ ] Planning：任务分解与执行计划
 - [ ] Memory：会话内短期记忆
 - [ ] Memory：长期记忆存储与检索

@@ -25,6 +25,7 @@ class Agent(BaseModel):
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_iterations: int | None = Field(default=None, ge=1, le=64)
+    tools: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def build_messages(

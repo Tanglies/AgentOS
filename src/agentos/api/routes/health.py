@@ -31,4 +31,5 @@ async def ready(runtime: RuntimeDep, llm_client: LLMClientDep) -> ReadyResponse:
     return ReadyResponse(
         llm_provider=llm_client.provider,
         agents=len(runtime.registry),
+        tools=len(runtime.tools),
     )

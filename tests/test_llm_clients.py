@@ -15,6 +15,8 @@ from agentos.llm import (
     EchoLLMClient,
     LLMMessage,
     OpenAICompatibleLLMClient,
+    ToolCall,
+    ToolSpec,
     available_providers,
     create_llm_client,
 )
@@ -30,6 +32,30 @@ def _completion_payload(content: str = "hi") -> dict[str, Any]:
     return {
         "model": "test-model",
         "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    }
+
+
+def _tool_call_payload(
+    name: str = "get_weather", arguments: str = '{"city": "上海"}'
+) -> dict[str, Any]:
+    return {
+        "model": "test-model",
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": name, "arguments": arguments},
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
         "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
     }
 
@@ -179,3 +205,119 @@ async def test_openai_compatible_rejects_malformed_response() -> None:
 
         with pytest.raises(LLMProviderError):
             await client.complete([LLMMessage.user("hi")])
+
+async def test_openai_compatible_sends_tools_and_parses_tool_calls() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_tool_call_payload())
+
+    async with _mock_client(handler) as http_client:
+        client = OpenAICompatibleLLMClient(
+            base_url="https://llm.test/v1", client=http_client, retry_backoff_seconds=0
+        )
+
+        response = await client.complete(
+            [LLMMessage.user("上海天气怎么样")],
+            options=CompletionOptions(
+                tools=[ToolSpec(name="get_weather", description="查询天气")]
+            ),
+        )
+
+    assert captured["body"]["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "查询天气",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    assert response.has_tool_calls is True
+    assert response.finish_reason == "tool_calls"
+    assert response.tool_calls is not None
+    assert response.tool_calls[0].id == "call_1"
+    assert response.tool_calls[0].name == "get_weather"
+    assert json.loads(response.tool_calls[0].arguments) == {"city": "上海"}
+
+
+async def test_openai_compatible_omits_tools_when_not_configured() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_completion_payload())
+
+    async with _mock_client(handler) as http_client:
+        client = OpenAICompatibleLLMClient(
+            base_url="https://llm.test/v1", client=http_client, retry_backoff_seconds=0
+        )
+
+        await client.complete([LLMMessage.user("hi")])
+
+    assert "tools" not in captured["body"]
+
+
+async def test_openai_compatible_sends_back_tool_messages() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_completion_payload("ok"))
+
+    async with _mock_client(handler) as http_client:
+        client = OpenAICompatibleLLMClient(
+            base_url="https://llm.test/v1", client=http_client, retry_backoff_seconds=0
+        )
+
+        await client.complete(
+            [
+                LLMMessage.user("6*7 等于多少"),
+                LLMMessage.assistant(
+                    "",
+                    tool_calls=[
+                        ToolCall(id="call_1", name="calculate", arguments='{"expression": "6*7"}')
+                    ],
+                ),
+                LLMMessage.tool("6*7 = 42", tool_call_id="call_1", name="calculate"),
+            ]
+        )
+
+    messages = captured["body"]["messages"]
+    assert messages[1]["tool_calls"][0]["function"]["name"] == "calculate"
+    assert messages[1]["tool_calls"][0]["id"] == "call_1"
+    assert messages[2]["role"] == "tool"
+    assert messages[2]["tool_call_id"] == "call_1"
+    assert messages[2]["name"] == "calculate"
+
+
+async def test_openai_compatible_tolerates_malformed_tool_calls() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "test-model",
+                "choices": [
+                    {
+                        "message": {
+                            "content": "hi",
+                            "tool_calls": [{"bad": "entry"}, "junk"],
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    async with _mock_client(handler) as http_client:
+        client = OpenAICompatibleLLMClient(
+            base_url="https://llm.test/v1", client=http_client, retry_backoff_seconds=0
+        )
+
+        response = await client.complete([LLMMessage.user("hi")])
+
+    assert response.content == "hi"
+    assert response.tool_calls is None
+    assert response.has_tool_calls is False

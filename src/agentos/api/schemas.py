@@ -10,6 +10,7 @@ from agentos.llm.base import TokenUsage
 from agentos.runtime.agent import AGENT_NAME_PATTERN, Agent
 from agentos.runtime.message import Message
 from agentos.runtime.runtime import RunResult
+from agentos.runtime.tools import Tool
 
 
 class HealthResponse(BaseModel):
@@ -28,6 +29,26 @@ class ReadyResponse(BaseModel):
     status: str = "ready"
     llm_provider: str
     agents: int
+    tools: int = 0
+
+
+class ToolSummary(BaseModel):
+    """工具摘要信息。"""
+
+    name: str
+    description: str = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_tool(cls, tool: Tool) -> ToolSummary:
+        return cls(name=tool.name, description=tool.description, parameters=tool.parameters)
+
+
+class ToolListResponse(BaseModel):
+    """工具列表响应。"""
+
+    items: list[ToolSummary]
+    total: int
 
 
 class AgentSummary(BaseModel):
@@ -37,6 +58,7 @@ class AgentSummary(BaseModel):
     description: str = ""
     model: str | None = None
     max_iterations: int | None = None
+    tools: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_agent(cls, agent: Agent) -> AgentSummary:
@@ -45,6 +67,7 @@ class AgentSummary(BaseModel):
             description=agent.description,
             model=agent.model,
             max_iterations=agent.max_iterations,
+            tools=list(agent.tools),
         )
 
 
@@ -57,6 +80,7 @@ class AgentCreateRequest(BaseModel):
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_iterations: int | None = Field(default=None, ge=1, le=64)
+    tools: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_agent(self) -> Agent:
@@ -89,6 +113,7 @@ class RunResponse(BaseModel):
     duration_ms: float
     finish_reason: str | None = None
     usage: TokenUsage | None = None
+    tool_call_count: int = 0
 
     @classmethod
     def from_result(cls, result: RunResult) -> RunResponse:
@@ -101,4 +126,5 @@ class RunResponse(BaseModel):
             duration_ms=result.duration_ms,
             finish_reason=result.finish_reason,
             usage=result.usage,
+            tool_call_count=result.tool_call_count,
         )

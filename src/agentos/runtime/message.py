@@ -12,7 +12,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field
 
-from agentos.llm.base import LLMMessage
+from agentos.llm.base import LLMMessage, ToolCall
 
 
 def utcnow() -> datetime:
@@ -36,6 +36,7 @@ class Message(BaseModel):
     content: str = ""
     name: str | None = None
     tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -48,8 +49,8 @@ class Message(BaseModel):
         return cls(role=MessageRole.USER, content=content)
 
     @classmethod
-    def assistant(cls, content: str) -> Self:
-        return cls(role=MessageRole.ASSISTANT, content=content)
+    def assistant(cls, content: str, *, tool_calls: list[ToolCall] | None = None) -> Self:
+        return cls(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls)
 
     @classmethod
     def tool(cls, content: str, *, tool_call_id: str, name: str | None = None) -> Self:
@@ -64,4 +65,5 @@ class Message(BaseModel):
             content=self.content,
             name=self.name,
             tool_call_id=self.tool_call_id,
+            tool_calls=self.tool_calls,
         )

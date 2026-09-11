@@ -7,6 +7,15 @@
 
 ### 新增
 
+- **Tool Calling（阶段 1 首项）**：模型可通过工具与外部世界交互，Runtime 自动执行工具并回填结果
+  - `runtime/tools.py`：`Tool` 抽象基类、`FunctionTool` 快捷封装、`ToolRegistry` 注册表与执行器
+  - 参数校验：按工具声明的 JSON Schema 校验 `required` / `type` / `enum`，未引入额外依赖
+  - 错误回填：工具不存在、参数非法、执行抛异常都转为 `is_error` 结果回填给模型，不中断整次运行
+  - 内置工具：`get_current_time`（按 UTC 偏移返回时间）、`calculate`（AST 白名单算术求值，不使用 `eval`）
+  - `llm/base.py`：新增 `ToolSpec` / `ToolCall`，`LLMResponse.tool_calls` 与 `CompletionOptions.tools`
+  - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
+  - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
+  - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
 - `examples/qwen_smoke.py`：真实模型冒烟测试脚本，走「配置 → LLM 客户端 → Agent Runtime」全链路，
   输出耗时与 token 消耗，支持 `--model` / `--models` 切换模型
 - `.vscode/tasks.json`：VS Code 一键任务（启动服务、热重载、真实模型冒烟、测试、代码检查、安装依赖）
@@ -23,10 +32,17 @@
 
 ### 技术记录
 
+- Tool Calling 采用「模型决策 + 服务端执行」分离：模型只返回工具名与 JSON 参数，
+  执行与校验全部在 `runtime` 层完成，`llm` 层只做协议编解码，保持依赖方向 `api → runtime → llm` 不变
+- 工具参数用 JSON Schema 声明，只校验 `required` / `type` / `enum` 子集，避免为此引入 `jsonschema` 依赖
+- 工具执行失败不抛异常而是回填错误文本，让模型有机会自我修正，同时保证单次工具故障不拖垮整个会话
+- 内置时间工具刻意使用 `datetime.timezone` 固定偏移而非 `zoneinfo`：后者在 Windows 上需要额外的 `tzdata` 包
+- 测试增至 97 个用例，新增 `tests/test_tools.py`（34 个）并扩展 Runtime / API / LLM 客户端的工具调用覆盖
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），
   AgentOS 需要的是 `openAiCompatible` 端点（`/compatible-mode/v1`）
+
 ## 0.1.0 - 2026-09-11
 
 ### 新增

@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 
 from agentos import __version__
 from agentos.api.middleware import RequestContextMiddleware
-from agentos.api.routes import agents, health, runs
+from agentos.api.routes import agents, health, runs, tools
 from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
 from agentos.core.logging import configure_logging, get_logger
@@ -88,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(agents.router, prefix=API_PREFIX)
     app.include_router(runs.router, prefix=API_PREFIX)
+    app.include_router(tools.router, prefix=API_PREFIX)
 
     _register_exception_handlers(app)
     return app

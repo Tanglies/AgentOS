@@ -15,6 +15,49 @@ from pydantic import BaseModel, Field
 Role = Literal["system", "user", "assistant", "tool"]
 
 
+class ToolSpec(BaseModel):
+    """暴露给模型的工具声明（JSON Schema 形式）。
+
+    Runtime 层的工具实现通过 ``Tool.spec()`` 转换成本模型，
+    LLM 层再按各提供方协议序列化，保证工具定义与具体协议解耦。
+    """
+
+    name: str
+    description: str = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+    def to_provider_payload(self) -> dict[str, Any]:
+        """转换为 OpenAI Chat Completions 风格的 ``tools`` 元素。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters or {"type": "object", "properties": {}},
+            },
+        }
+
+
+class ToolCall(BaseModel):
+    """模型发起的一次工具调用请求。
+
+    ``arguments`` 保持提供方原始的 JSON 字符串形式，
+    由 Runtime 层解析并按工具声明的 Schema 校验，避免在协议层丢失细节。
+    """
+
+    id: str
+    name: str
+    arguments: str = "{}"
+
+    def to_provider_payload(self) -> dict[str, Any]:
+        """转换为 OpenAI Chat Completions 风格的 ``tool_calls`` 元素。"""
+        return {
+            "id": self.id,
+            "type": "function",
+            "function": {"name": self.name, "arguments": self.arguments},
+        }
+
+
 class LLMMessage(BaseModel):
     """发送给模型的一条消息（与协议无关的内部表示）。"""
 
@@ -22,6 +65,7 @@ class LLMMessage(BaseModel):
     content: str = ""
     name: str | None = None
     tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
     @classmethod
     def system(cls, content: str) -> Self:
@@ -32,8 +76,8 @@ class LLMMessage(BaseModel):
         return cls(role="user", content=content)
 
     @classmethod
-    def assistant(cls, content: str) -> Self:
-        return cls(role="assistant", content=content)
+    def assistant(cls, content: str, *, tool_calls: list[ToolCall] | None = None) -> Self:
+        return cls(role="assistant", content=content, tool_calls=tool_calls)
 
     @classmethod
     def tool(cls, content: str, *, tool_call_id: str, name: str | None = None) -> Self:
@@ -46,6 +90,8 @@ class LLMMessage(BaseModel):
             payload["name"] = self.name
         if self.tool_call_id is not None:
             payload["tool_call_id"] = self.tool_call_id
+        if self.tool_calls:
+            payload["tool_calls"] = [call.to_provider_payload() for call in self.tool_calls]
         return payload
 
 
@@ -70,6 +116,7 @@ class CompletionOptions(BaseModel):
     model: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    tools: list[ToolSpec] | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -80,12 +127,18 @@ class LLMResponse(BaseModel):
     model: str
     finish_reason: str | None = None
     usage: TokenUsage | None = None
+    tool_calls: list[ToolCall] | None = None
     raw: dict[str, Any] | None = None
 
     @property
     def has_content(self) -> bool:
         """返回内容是否非空。"""
         return bool(self.content.strip())
+
+    @property
+    def has_tool_calls(self) -> bool:
+        """返回模型是否发起了工具调用。"""
+        return bool(self.tool_calls)
 
 
 class LLMClient(ABC):

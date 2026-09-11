@@ -39,6 +39,7 @@ def test_openapi_schema_is_exposed(client: TestClient) -> None:
     assert "/health" in schema["paths"]
     assert "/api/v1/agents" in schema["paths"]
     assert "/api/v1/runs" in schema["paths"]
+    assert "/api/v1/tools" in schema["paths"]
 
 
 def test_list_agents_contains_default_agent(client: TestClient) -> None:
@@ -124,3 +125,52 @@ def test_create_agent_with_invalid_name_returns_validation_error(client: TestCli
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
+
+def test_ready_endpoint_reports_tool_count(client: TestClient) -> None:
+    body = client.get("/health/ready").json()
+
+    assert body["tools"] >= 2
+
+
+def test_list_tools_returns_builtin_tools(client: TestClient) -> None:
+    body = client.get("/api/v1/tools").json()
+
+    assert body["total"] >= 2
+    names = {item["name"] for item in body["items"]}
+    assert {"calculate", "get_current_time"} <= names
+
+
+def test_tool_summary_exposes_json_schema(client: TestClient) -> None:
+    body = client.get("/api/v1/tools").json()
+    calculate = next(item for item in body["items"] if item["name"] == "calculate")
+
+    assert calculate["parameters"]["type"] == "object"
+    assert "expression" in calculate["parameters"]["properties"]
+    assert calculate["description"]
+
+
+def test_default_agent_exposes_builtin_tools(client: TestClient) -> None:
+    body = client.get("/api/v1/agents").json()
+    assistant = next(item for item in body["items"] if item["name"] == "assistant")
+
+    assert {"calculate", "get_current_time"} <= set(assistant["tools"])
+
+
+def test_create_agent_with_tools_round_trips(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "calculator-agent", "tools": ["calculate"]},
+    )
+
+    assert created.status_code == 201
+    assert created.json()["tools"] == ["calculate"]
+
+    fetched = client.get("/api/v1/agents/calculator-agent")
+    assert fetched.status_code == 200
+    assert fetched.json()["tools"] == ["calculate"]
+
+
+def test_run_response_includes_tool_call_count(client: TestClient) -> None:
+    body = client.post("/api/v1/runs", json={"input": "hi"}).json()
+
+    assert body["tool_call_count"] == 0

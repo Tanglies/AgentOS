@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from agentos.core.config import RuntimeSettings
 from agentos.core.exceptions import ConflictError, NotFoundError
 from agentos.runtime.agent import Agent
+from agentos.runtime.builtin_tools import DEFAULT_AGENT_TOOLS
 
 
 class AgentRegistry:
@@ -64,6 +65,7 @@ def create_default_registry(settings: RuntimeSettings) -> AgentRegistry:
                 name=settings.default_agent,
                 description="AgentOS 内置通用助手，用于验证服务链路。",
                 system_prompt=settings.system_prompt,
+                tools=list(DEFAULT_AGENT_TOOLS),
             )
         ]
     )
