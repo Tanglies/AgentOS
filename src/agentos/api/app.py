@@ -18,12 +18,13 @@ from fastapi.responses import JSONResponse
 
 from agentos import __version__
 from agentos.api.middleware import RequestContextMiddleware
-from agentos.api.routes import agents, health, runs, sessions, tools
+from agentos.api.routes import agents, health, memories, runs, sessions, tools
 from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
 from agentos.core.logging import configure_logging, get_logger
 from agentos.llm.factory import create_llm_client
 from agentos.runtime.builtin_tools import create_default_tool_registry
+from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
 from agentos.runtime.registry import create_default_registry
 from agentos.runtime.runtime import AgentRuntime
@@ -42,8 +43,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         llm_client = create_llm_client(resolved.llm)
-        tool_registry = create_default_tool_registry(resolved.tools)
         memory = MemoryStore(resolved.memory)
+        long_term = (
+            LongTermMemory(resolved.memory) if resolved.memory.long_term_enabled else None
+        )
+        tool_registry = create_default_tool_registry(resolved.tools, long_term=long_term)
         runtime = AgentRuntime(
             llm_client,
             settings=resolved.runtime,
@@ -52,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             tools=tool_registry,
             memory=memory,
+            long_term=long_term,
         )
         app.state.llm_client = llm_client
         app.state.runtime = runtime
@@ -98,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(runs.router, prefix=API_PREFIX)
     app.include_router(tools.router, prefix=API_PREFIX)
     app.include_router(sessions.router, prefix=API_PREFIX)
+    app.include_router(memories.router, prefix=API_PREFIX)
 
     _register_exception_handlers(app)
     return app

@@ -74,6 +74,18 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 避免把 `assistant(tool_calls)` 与其后的 `tool` 结果拆散 —— 那样再发给
 OpenAI 兼容接口会因为 tool_calls 缺少对应结果而报错。
 
+**长期记忆**跨会话保留，落盘到 SQLite：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_MEMORY__LONG_TERM_ENABLED` | `true` | 是否启用长期记忆（含 `remember` / `recall` 工具） |
+| `AGENTOS_MEMORY__LONG_TERM_DB_PATH` | `.agentos/memory.db` | SQLite 文件路径，已加入 `.gitignore` |
+| `AGENTOS_MEMORY__LONG_TERM_AUTO_RECALL` | `true` | 每次运行前是否自动召回并注入系统提示词 |
+| `AGENTOS_MEMORY__LONG_TERM_RECALL_LIMIT` | `5` | 单次最多召回条数（1-20） |
+
+检索是**关键词匹配**：查询切成英文词与中文二元组，按命中词长度加权排序。
+这样不需要 embedding 依赖、也不额外调用模型；代价是同义改写召回率有限，后续可换成向量检索。
+
 ### 工具（`tools`）
 
 本地工具让 Agent 具备读写工作区、搜索文本与执行命令的能力。

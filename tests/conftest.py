@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -23,14 +24,19 @@ def clean_agentos_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def settings() -> Settings:
-    """测试用配置：本地环境、echo 提供方、JSON 日志。"""
+def settings(tmp_path: Path) -> Settings:
+    """测试用配置：本地环境、echo 提供方、JSON 日志、隔离的长期记忆库。
+
+    长期记忆默认落盘到 ``.agentos/memory.db``，若不在测试中重定向，
+    跑一次测试就会污染工作区，因此这里指向 ``tmp_path``。
+    """
     return Settings(
         _env_file=None,
         environment="local",
         debug=True,
         llm={"provider": "echo"},
         logging={"level": "INFO", "format": "json"},
+        memory={"long_term_db_path": str(tmp_path / "memory.db")},
     )
 
 

@@ -16,7 +16,7 @@
 | Agent 管理 API | 注册、查询、列表、注销 | ✅ v0.1 |
 | Tool Calling | 工具注册、参数校验、调用与结果回填 | ✅ v0.1 |
 | 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
-| Memory | 会话短期记忆（`session_id`）；长期记忆与向量检索 | ✅ 短期 / 规划长期 |
+| Memory | 短期会话记忆（内存）+ 长期记忆（SQLite 持久化、关键词检索） | ✅ v0.1 |
 | Multi-Agent | 多 Agent 协作与消息路由 | 规划中 |
 | Evaluation / Observability | 评测集、指标与链路追踪 | 规划中 |
 | Docker 部署 | 镜像与一键启动 | 规划中 |
@@ -111,6 +111,8 @@ Runtime 会把工具声明透传给模型，并在模型请求调用时执行工
 | `run_command` | 执行 shell 命令 | ⚠️ **默认关闭** |
 | `fetch_url` | 抓取公网网页并转纯文本（SSRF 防护） | ✅ |
 | `web_search` | 联网搜索（需配置 API Key） | 需 Key |
+| `remember` | 写入长期记忆 | ✅ |
+| `recall` | 检索长期记忆 | ✅ |
 
 **安全模型**：文件工具的路径统一经过 `WorkspaceSandbox`，`..` 逃逸、外部绝对路径与
 外部符号链接都会被拒绝；`.env`、私钥、API Key、`secrets/` 等敏感文件被列入黑名单。
@@ -198,6 +200,25 @@ curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
 优先级：显式 `session_id` > 显式 `history`（调用方自行管理，无状态）> 默认会话。
 把 `AGENTOS_MEMORY__DEFAULT_SESSION_ID` 设为空字符串即可恢复无状态。
 
+#### 长期记忆
+
+短期记忆随进程消失，长期记忆**落盘到 SQLite**，跨会话、跨重启保留：
+
+```powershell
+# 程序化写入
+curl.exe -X POST http://127.0.0.1:8000/api/v1/memories `
+  -H "Content-Type: application/json" `
+  -d '{"content": "用户偏好用中文回答，喜欢简洁"}'
+
+curl.exe http://127.0.0.1:8000/api/v1/memories
+```
+
+Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模型判断
+「什么值得长期记住」。此外每次运行前会**自动召回**相关记忆并注入系统提示词。
+
+检索是**关键词匹配**（英文按词、中文按二元组加权），不依赖 embedding；
+数据库默认在 `.agentos/memory.db`，已被 `.gitignore` 忽略。
+
 容量由 `AGENTOS_MEMORY__MAX_MESSAGES_PER_SESSION`（默认 50）与
 `AGENTOS_MEMORY__MAX_SESSIONS`（默认 1000，超出按 LRU 淘汰）控制。
 
@@ -213,6 +234,9 @@ curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
 | DELETE | `/api/v1/agents/{name}` | 注销 Agent |
 | POST | `/api/v1/runs` | 执行一次 Agent 运行 |
 | GET | `/api/v1/tools` | 列出服务端已注册的工具 |
+| GET | `/api/v1/memories` | 列出长期记忆 |
+| POST | `/api/v1/memories` | 写入一条长期记忆 |
+| DELETE | `/api/v1/memories/{id}` | 删除一条长期记忆 |
 | GET | `/api/v1/sessions` | 列出全部会话记忆 |
 | GET | `/api/v1/sessions/{id}` | 获取会话消息详情 |
 | DELETE | `/api/v1/sessions/{id}` | 清除会话记忆 |

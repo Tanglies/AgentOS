@@ -22,7 +22,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - 联网工具：`fetch_url`（带 SSRF 防护）、`web_search`（需配置搜索 API Key）
 - [ ] Planning：任务分解与执行计划
 - [x] Memory：会话内短期记忆（进程内 `session_id` 维度，含 LRU 淘汰与轮次对齐截断）
-- [ ] Memory：长期记忆存储与检索
+- [x] Memory：长期记忆存储与检索（SQLite 持久化 + 关键词召回；向量检索待后续）
 - [ ] Multi-Agent：多 Agent 协作与消息路由
 
 ## 阶段 2：平台能力

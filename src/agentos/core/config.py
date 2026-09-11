@@ -77,6 +77,9 @@ class MemorySettings(BaseModel):
     当前实现是进程内短期记忆：按 ``session_id`` 保存最近若干轮对话。
     会话数超过 ``max_sessions`` 时按 LRU 淘汰最久未使用的会话。
 
+    ``long_term_*`` 控制长期记忆：默认落盘到 ``.agentos/memory.db``，
+    跨会话保留，并在每次运行前按关键词召回相关条目注入上下文。
+
     ``default_session_id`` 是未显式传参时使用的会话：默认 ``default``，
     即记忆**开箱即用**；设置为空字符串可恢复「不传即无状态」的行为。
     """
@@ -84,6 +87,12 @@ class MemorySettings(BaseModel):
     default_session_id: str = "default"
     max_messages_per_session: int = Field(default=50, ge=1, le=1000)
     max_sessions: int = Field(default=1000, ge=1, le=100_000)
+
+    # 长期记忆：跨会话持久化到 SQLite，并按关键词检索召回
+    long_term_enabled: bool = True
+    long_term_db_path: str = ".agentos/memory.db"
+    long_term_auto_recall: bool = True
+    long_term_recall_limit: int = Field(default=5, ge=1, le=20)
 
 
 class ToolsSettings(BaseModel):

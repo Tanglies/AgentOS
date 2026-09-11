@@ -17,6 +17,8 @@ from typing import Any
 
 from agentos.core.config import ToolsSettings
 from agentos.runtime.local_tools import create_local_tools
+from agentos.runtime.long_term_memory import LongTermMemory
+from agentos.runtime.memory_tools import create_memory_tools
 from agentos.runtime.tools import Tool, ToolRegistry
 from agentos.runtime.web_tools import create_web_tools
 
@@ -125,10 +127,20 @@ class GetCurrentTimeTool(Tool):
         return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S UTC%z")
 
 
-def create_default_tool_registry(settings: ToolsSettings | None = None) -> ToolRegistry:
-    """创建默认工具注册表：通用工具 + 本地工具 + 按配置启用的联网工具。"""
+def create_default_tool_registry(
+    settings: ToolsSettings | None = None,
+    *,
+    long_term: LongTermMemory | None = None,
+) -> ToolRegistry:
+    """创建默认工具注册表。
+
+    包含通用工具、按配置启用的本地与联网工具，
+    以及在启用长期记忆时附加的 ``remember`` / ``recall``。
+    """
     resolved = settings or ToolsSettings()
     tools: list[Tool] = [GetCurrentTimeTool(), CalculateTool()]
     tools.extend(create_local_tools(resolved))
     tools.extend(create_web_tools(resolved))
+    if long_term is not None:
+        tools.extend(create_memory_tools(long_term))
     return ToolRegistry(tools)

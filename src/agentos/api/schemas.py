@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from agentos.llm.base import TokenUsage
 from agentos.runtime.agent import AGENT_NAME_PATTERN, Agent
+from agentos.runtime.long_term_memory import MemoryRecord
 from agentos.runtime.memory import SessionState
 from agentos.runtime.message import Message
 from agentos.runtime.runtime import RunResult
@@ -93,6 +94,38 @@ class AgentListResponse(BaseModel):
     """Agent 列表响应。"""
 
     items: list[AgentSummary]
+    total: int
+
+
+class MemorySummary(BaseModel):
+    """长期记忆摘要。"""
+
+    id: int
+    content: str
+    session_id: str | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: MemoryRecord) -> MemorySummary:
+        return cls(
+            id=record.id,
+            content=record.content,
+            session_id=record.session_id,
+            created_at=record.created_at,
+        )
+
+
+class MemoryCreateRequest(BaseModel):
+    """写入长期记忆的请求体。"""
+
+    content: str = Field(min_length=1, max_length=4000)
+    session_id: str | None = Field(default=None, max_length=64)
+
+
+class MemoryListResponse(BaseModel):
+    """长期记忆列表响应。"""
+
+    items: list[MemorySummary]
     total: int
 
 

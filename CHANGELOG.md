@@ -16,6 +16,14 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **长期记忆**：跨会话持久化的记忆存储与检索
+  - `runtime/long_term_memory.py`：基于 SQLite 的 `LongTermMemory`，进程重启不丢
+  - 检索用关键词加权匹配：查询切成英文词与中文二元组，按命中词长度排序
+    （SQLite 内置 FTS5 对中文支持差，两个字的中文词都召不回，故不走 FTS）
+  - `runtime/memory_tools.py`：`remember` / `recall` 两个工具，由模型自行决定记什么
+  - Runtime 新增自动召回：运行前把相关记忆并入系统提示词
+  - API：新增 `GET/POST/DELETE /api/v1/memories`
+  - 数据库默认落在 `.agentos/memory.db`，已加入 `.gitignore`
 - **联网工具**：Agent 可以抓取网页与联网检索
   - `runtime/web_tools.py`：`fetch_url`（网页转纯文本）与 `web_search`（Tavily 兼容搜索）
   - `fetch_url` 带 SSRF 防护：仅允许 http/https，且目标必须解析到公网地址；
@@ -73,6 +81,9 @@
 - 测试增至 196 个用例，新增 `tests/test_web_tools.py`（39 个）覆盖 SSRF、HTML 转换与搜索
 - 默认会话开启后，显式传 `history` 的调用方会被优先尊重，避免破坏「客户端自管历史」的既有用法
 - 测试增至 199 个用例，补充默认会话、关闭默认会话与 history 优先级用例
+- 长期记忆用 SQLite 连接时显式 close：`with sqlite3.connect(...)` 只管理事务，不关闭连接，会泄漏句柄
+- 测试夹具把长期记忆库重定向到 `tmp_path`，避免跑测试时在工作区生成 `.agentos/memory.db`
+- 测试增至 232 个用例，新增 `tests/test_long_term_memory.py`（33 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

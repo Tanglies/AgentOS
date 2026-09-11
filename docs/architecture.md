@@ -35,6 +35,7 @@
 | 联网工具 | `runtime/web_tools.py` | 网页抓取（SSRF 防护）与联网搜索 |
 | 运行内核 | `runtime/runtime.py` | 迭代调用模型、统计用量、产出 `RunResult` |
 | 会话记忆 | `runtime/memory.py` | 按 `session_id` 保存短期记忆，含 LRU 淘汰与轮次对齐截断 |
+| 长期记忆 | `runtime/long_term_memory.py` | SQLite 持久化 + 关键词加权召回，跨会话保留 |
 | LLM 契约 | `llm/base.py` | `LLMMessage` / `LLMResponse` / `LLMClient` |
 | LLM 实现 | `llm/echo.py`, `llm/openai_compatible.py` | 回显客户端与 OpenAI 兼容 HTTP 客户端 |
 | LLM 工厂 | `llm/factory.py` | provider 注册表与实例化 |
@@ -86,6 +87,7 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 联网抓取做 SSRF 防护 | 模型可被诱导抓取云元数据地址窃取凭据，必须限制为公网目标并逐跳校验重定向 |
 | 记忆靠 `session_id` 显式启用 | 不传即无状态，保持向后兼容，也避免无意义的会话堆积 |
 | 记忆截断对齐完整轮次 | 拆散 `tool_calls` 与 `tool` 结果会让上游接口直接报错 |
+| 长期记忆用关键词而非向量 | 向量检索要引入 embedding 依赖与额外调用；关键词匹配用标准库即可覆盖常见召回 |
 
 ## 扩展点
 
@@ -98,5 +100,5 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 
 ## v0.1 边界
 
-当前版本是工程基座，**已实现 Tool Calling 与会话短期记忆**。**尚未实现**：长期记忆（向量检索）、
-Multi-Agent、鉴权与配额、持久化存储、评测体系、指标与链路追踪、容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。
+当前版本是工程基座，**已实现 Tool Calling、会话短期记忆与长期记忆（关键词检索）**。
+**尚未实现**：向量检索、Multi-Agent、鉴权与配额、评测体系、指标与链路追踪、容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。

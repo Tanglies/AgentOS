@@ -36,8 +36,9 @@ from agentos.llm.base import (
 )
 from agentos.runtime.agent import Agent
 from agentos.runtime.builtin_tools import create_default_tool_registry
+from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
-from agentos.runtime.message import Message
+from agentos.runtime.message import Message, MessageRole
 from agentos.runtime.registry import AgentRegistry, create_default_registry
 from agentos.runtime.tools import ToolCallResult, ToolRegistry
 
@@ -70,6 +71,7 @@ class AgentRuntime:
         registry: AgentRegistry | None = None,
         tools: ToolRegistry | None = None,
         memory: MemoryStore | None = None,
+        long_term: LongTermMemory | None = None,
     ) -> None:
         self._llm = llm_client
         self._settings = settings or RuntimeSettings()
@@ -78,6 +80,7 @@ class AgentRuntime:
         )
         self._tools = tools if tools is not None else create_default_tool_registry()
         self._memory = memory if memory is not None else MemoryStore()
+        self._long_term = long_term
 
     @property
     def llm_client(self) -> LLMClient:
@@ -94,6 +97,10 @@ class AgentRuntime:
     @property
     def memory(self) -> MemoryStore:
         return self._memory
+
+    @property
+    def long_term(self) -> LongTermMemory | None:
+        return self._long_term
 
     @property
     def settings(self) -> RuntimeSettings:
@@ -135,6 +142,7 @@ class AgentRuntime:
         started_at = time.perf_counter()
         max_iterations = resolved.max_iterations or self._settings.max_iterations
         messages = resolved.build_messages(input_text, history=history)
+        self._inject_long_term(messages, input_text)
         # 本轮消息从 user 开始，用于运行结束后写回会话记忆
         new_turn_start = len(messages) - 1
         options = self._build_options(resolved)
@@ -252,6 +260,28 @@ class AgentRuntime:
     async def aclose(self) -> None:
         """关闭底层 LLM 客户端。"""
         await self._llm.aclose()
+
+    def _inject_long_term(self, messages: list[Message], query: str) -> None:
+        """把召回的相关长期记忆并入系统提示词。
+
+        并入而不是新增一条 system 消息，是为了不改变消息顺序假设，
+        也避免部分提供方对多条 system 消息的兼容性问题。
+        """
+        if self._long_term is None or not self._long_term.auto_recall:
+            return
+
+        records = self._long_term.recall(query)
+        if not records:
+            return
+
+        lines = ["[长期记忆] 以下是与当前问题相关的历史记录，供参考："]
+        lines.extend(f"- {record.content}" for record in records)
+        context = "\n".join(lines)
+
+        if messages and messages[0].role == MessageRole.SYSTEM:
+            messages[0] = Message.system(f"{messages[0].content}\n\n{context}")
+        else:
+            messages.insert(0, Message.system(context))
 
     def _resolve_agent(self, agent: Agent | str) -> Agent:
         if isinstance(agent, Agent):
