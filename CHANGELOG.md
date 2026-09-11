@@ -3,6 +3,30 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 未发布
+
+### 新增
+
+- `examples/qwen_smoke.py`：真实模型冒烟测试脚本，走「配置 → LLM 客户端 → Agent Runtime」全链路，
+  输出耗时与 token 消耗，支持 `--model` / `--models` 切换模型
+- `.vscode/tasks.json`：VS Code 一键任务（启动服务、热重载、真实模型冒烟、测试、代码检查、安装依赖）
+- `.vscode/settings.json`：默认解释器指向 `.venv`，启用 pytest 面板
+- `.gitattributes`：统一换行符为 LF，避免跨平台无意义 diff
+
+### 修改
+
+- `.env.example` 补充阿里云百炼 / DashScope OpenAI 兼容模式与专属工作空间（MaaS）配置示例
+
+### 安全
+
+- `.gitignore` 新增密钥文件忽略规则：`*apiKey*.csv`、`*apikey*.csv`、`*-apiKey-*.*`、`secrets/`
+
+### 技术记录
+
+- 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
+  单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
+- 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），
+  AgentOS 需要的是 `openAiCompatible` 端点（`/compatible-mode/v1`）
 ## 0.1.0 - 2026-09-11
 
 ### 新增
