@@ -29,14 +29,17 @@ from agentos.runtime.tools import (
     ToolArgumentError,
     ToolCallResult,
     ToolRegistry,
+    truncate_text,
     validate_arguments,
 )
+from agentos.runtime.web_tools import FetchUrlTool, WebSearchTool, create_web_tools
 
 __all__ = [
     "Agent",
     "AgentRegistry",
     "AgentRuntime",
     "CalculateTool",
+    "FetchUrlTool",
     "FunctionTool",
     "GetCurrentTimeTool",
     "ListDirectoryTool",
@@ -54,11 +57,14 @@ __all__ = [
     "ToolArgumentError",
     "ToolCallResult",
     "ToolRegistry",
+    "WebSearchTool",
     "WorkspaceSandbox",
     "WriteFileTool",
     "create_default_registry",
     "create_default_tool_registry",
     "create_local_tools",
+    "create_web_tools",
+    "truncate_text",
     "utcnow",
     "validate_arguments",
 ]

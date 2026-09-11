@@ -16,6 +16,14 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **联网工具**：Agent 可以抓取网页与联网检索
+  - `runtime/web_tools.py`：`fetch_url`（网页转纯文本）与 `web_search`（Tavily 兼容搜索）
+  - `fetch_url` 带 SSRF 防护：仅允许 http/https，且目标必须解析到公网地址；
+    回环、内网、链路本地、保留地址（含云元数据 `169.254.169.254`）全部拒绝
+  - 重定向逐跳重新校验，避免「先给公网地址再 302 到内网」绕过
+  - HTML 用标准库 `html.parser` 转纯文本，跳过 script/style，不引入新依赖
+  - `web_search` 仅在配置 `AGENTOS_TOOLS__WEB_SEARCH_API_KEY` 时注册
+  - `truncate_text` 提取为公共工具函数，供本地工具与联网工具复用
 - **会话短期记忆**：Agent 可在多轮对话中记住上下文
   - `runtime/memory.py`：`MemoryStore` 进程内实现，按 `session_id` 隔离会话
   - 显式传 `session_id` 才启用；不传保持无状态，向后兼容
@@ -59,6 +67,8 @@
 - 测试增至 132 个用例，新增 `tests/test_local_tools.py`（35 个）覆盖沙箱、限额与命令开关
 - 会话记忆只在运行**成功**时写回，失败运行不会污染历史；系统提示词不写入记忆
 - 测试增至 157 个用例，新增 `tests/test_memory.py`（25 个）覆盖存储、LRU、截断与 API
+- 联网抓取用 `httpx.MockTransport` 注入测试，SSRF 用例断言恶意地址**根本不会发起请求**
+- 测试增至 196 个用例，新增 `tests/test_web_tools.py`（39 个）覆盖 SSRF、HTML 转换与搜索
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

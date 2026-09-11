@@ -109,11 +109,18 @@ Runtime 会把工具声明透传给模型，并在模型请求调用时执行工
 | `search_text` | 在工作区内按正则搜索 | ✅ |
 | `write_file` | 写入文本文件（覆盖需 `overwrite=true`） | ✅ |
 | `run_command` | 执行 shell 命令 | ⚠️ **默认关闭** |
+| `fetch_url` | 抓取公网网页并转纯文本（SSRF 防护） | ✅ |
+| `web_search` | 联网搜索（需配置 API Key） | 需 Key |
 
 **安全模型**：文件工具的路径统一经过 `WorkspaceSandbox`，`..` 逃逸、外部绝对路径与
 外部符号链接都会被拒绝；`.env`、私钥、API Key、`secrets/` 等敏感文件被列入黑名单。
 `run_command` 执行的是真实 shell，**命令内部不受沙箱约束**，需显式设置
-`AGENTOS_TOOLS__ALLOW_SHELL=true` 才会启用。详见 [配置说明](docs/configuration.md)。
+`AGENTOS_TOOLS__ALLOW_SHELL=true` 才会启用。
+
+`fetch_url` 只允许访问**公网** http/https 地址：回环、内网与云元数据地址
+（如 `169.254.169.254`）会被拒绝，重定向也会逐跳重新校验。
+`web_search` 兼容 Tavily 接口，配置 `AGENTOS_TOOLS__WEB_SEARCH_API_KEY` 后自动启用。
+详见 [配置说明](docs/configuration.md)。
 
 ```powershell
 # 查看服务端已注册的工具

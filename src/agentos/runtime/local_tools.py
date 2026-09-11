@@ -27,7 +27,7 @@ from pathlib import Path
 
 from agentos.core.config import ToolsSettings
 from agentos.runtime.sandbox import SensitiveFileError, WorkspaceSandbox
-from agentos.runtime.tools import Tool
+from agentos.runtime.tools import Tool, truncate_text
 
 # 搜索时跳过的目录，避免把依赖与缓存噪声带进上下文。
 _SKIP_DIRS = frozenset(
@@ -49,13 +49,6 @@ _MAX_MATCHES = 200
 _MAX_SCAN_FILES = 2000
 _MAX_WRITE_BYTES = 1_048_576
 _MAX_LINE_CHARS = 200
-
-
-def _truncate(text: str, limit: int) -> str:
-    """按字符数截断，并附上说明。"""
-    if len(text) <= limit:
-        return text
-    return f"{text[:limit]}\n... [输出已截断，完整长度 {len(text)} 字符]"
 
 
 class _SandboxedTool(Tool):
@@ -100,7 +93,7 @@ class ListDirectoryTool(_SandboxedTool):
                 continue
 
         header = f"{self._sandbox.relative(target)} （{len(lines)} 项）"
-        return _truncate("\n".join([header, *lines]), self._settings.max_output_chars)
+        return truncate_text("\n".join([header, *lines]), self._settings.max_output_chars)
 
 
 class ReadFileTool(_SandboxedTool):
@@ -134,7 +127,7 @@ class ReadFileTool(_SandboxedTool):
         text = raw.decode("utf-8", errors="replace")
         if size > limit:
             text += f"\n... [文件共 {size} 字节，已截断到前 {limit} 字节]"
-        return _truncate(text, self._settings.max_output_chars)
+        return truncate_text(text, self._settings.max_output_chars)
 
 
 class SearchTextTool(_SandboxedTool):
@@ -208,7 +201,7 @@ class SearchTextTool(_SandboxedTool):
             return f"未找到匹配：{pattern}"
 
         header = f"共 {len(matches)} 条匹配（最多返回 {_MAX_MATCHES} 条）"
-        return _truncate("\n".join([header, *matches]), self._settings.max_output_chars)
+        return truncate_text("\n".join([header, *matches]), self._settings.max_output_chars)
 
 
 class WriteFileTool(_SandboxedTool):
@@ -306,7 +299,7 @@ class RunCommandTool(_SandboxedTool):
         if completed.stderr:
             chunks.append(f"[stderr]\n{completed.stderr.rstrip()}")
         body = "\n".join(chunks) if chunks else "(无输出)"
-        return _truncate(
+        return truncate_text(
             f"[exit={completed.returncode}]\n{body}", self._settings.max_output_chars
         )
 

@@ -43,6 +43,13 @@ _JSON_TYPES: dict[str, tuple[type, ...]] = {
 }
 
 
+def truncate_text(text: str, limit: int) -> str:
+    """按字符数截断文本，并附上长度说明。"""
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}\n... [输出已截断，完整长度 {len(text)} 字符]"
+
+
 class ToolArgumentError(ValidationError):
     """工具参数不符合声明的 JSON Schema。"""
 

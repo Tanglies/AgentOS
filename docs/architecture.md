@@ -32,6 +32,7 @@
 | 内置工具 | `runtime/builtin_tools.py` | 通用工具与默认工具注册表工厂 |
 | 路径沙箱 | `runtime/sandbox.py` | 把文件操作约束在 `workspace_root` 内，并拦截敏感文件 |
 | 本地工具 | `runtime/local_tools.py` | 目录浏览、文件读写、文本搜索、命令执行 |
+| 联网工具 | `runtime/web_tools.py` | 网页抓取（SSRF 防护）与联网搜索 |
 | 运行内核 | `runtime/runtime.py` | 迭代调用模型、统计用量、产出 `RunResult` |
 | 会话记忆 | `runtime/memory.py` | 按 `session_id` 保存短期记忆，含 LRU 淘汰与轮次对齐截断 |
 | LLM 契约 | `llm/base.py` | `LLMMessage` / `LLMResponse` / `LLMClient` |
@@ -82,6 +83,7 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 文件工具统一走路径沙箱 | 模型可能被提示注入诱导读写任意路径，沙箱把影响面限制在 `workspace_root` |
 | 敏感文件黑名单 | 避免 `.env`、私钥等凭据被读进模型上下文或写入日志 |
 | `run_command` 默认关闭 | shell 无法被路径沙箱约束，只能用显式开关 + 超时 + 输出截断降低风险 |
+| 联网抓取做 SSRF 防护 | 模型可被诱导抓取云元数据地址窃取凭据，必须限制为公网目标并逐跳校验重定向 |
 | 记忆靠 `session_id` 显式启用 | 不传即无状态，保持向后兼容，也避免无意义的会话堆积 |
 | 记忆截断对齐完整轮次 | 拆散 `tool_calls` 与 `tool` 结果会让上游接口直接报错 |
 

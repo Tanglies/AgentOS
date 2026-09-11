@@ -83,6 +83,20 @@ OpenAI 兼容接口会因为 tool_calls 缺少对应结果而报错。
 | `AGENTOS_TOOLS__MAX_READ_BYTES` | `256000` | 单文件读取上限（字节） |
 | `AGENTOS_TOOLS__MAX_OUTPUT_CHARS` | `16000` | 工具输出回填给模型的最大字符数 |
 
+#### 联网工具
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_TOOLS__WEB_TIMEOUT_SECONDS` | `15` | 网页抓取与搜索的请求超时（1-120 秒） |
+| `AGENTOS_TOOLS__MAX_WEB_BYTES` | `512000` | 单次抓取的响应体上限（字节） |
+| `AGENTOS_TOOLS__WEB_SEARCH_API_URL` | `https://api.tavily.com/search` | 搜索接口地址（Tavily 兼容） |
+| `AGENTOS_TOOLS__WEB_SEARCH_API_KEY` | 空 | 搜索 API Key；**未配置时不注册 `web_search`** |
+| `AGENTOS_TOOLS__WEB_SEARCH_MAX_RESULTS` | `5` | 单次搜索返回的最大结果数（1-20） |
+
+`fetch_url` 的 SSRF 防护：只允许 `http`/`https`，且目标必须解析到**公网地址** ——
+回环、内网、链路本地与保留地址（含云元数据 `169.254.169.254`）全部拒绝；
+重定向逐跳重新校验，避免「先公网再 302 到内网」绕过。
+
 **安全模型**
 
 - 文件工具的路径统一经过 `WorkspaceSandbox` 解析：`..` 逃逸、外部绝对路径、
@@ -137,3 +151,5 @@ register_provider("my_provider", lambda settings: MyLLMClient(settings))
 - 日志中命中 `redact_keys` 的字段统一替换为 `***`
 - `run_command` 默认关闭；开启等于把宿主机 shell 交给模型，请自行评估风险
 - 文件工具默认只能操作 `workspace_root`，但仍会读取该项目内的全部源码，注意仓库边界
+- `fetch_url` 会访问外网，抓到的内容进入模型上下文，注意提示注入风险
+- 搜索 API Key 使用 `SecretStr` 承载，不会出现在工具声明或日志里

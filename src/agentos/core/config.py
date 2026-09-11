@@ -83,13 +83,16 @@ class MemorySettings(BaseModel):
 
 
 class ToolsSettings(BaseModel):
-    """本地工具（文件 / 命令）配置。
+    """本地工具（文件 / 命令）与联网工具配置。
 
     这些配置决定 Agent 能在多大范围内操作宿主机：
 
     - ``workspace_root``：所有文件工具的沙箱根目录，越界路径直接拒绝
     - ``allow_file_write``：是否允许写文件（覆盖已有文件还需显式确认）
     - ``allow_shell``：是否允许执行 shell 命令，**默认关闭**
+
+    联网相关：``fetch_url`` 始终可用（受 SSRF 防护约束）；
+    ``web_search`` 仅在配置了 ``web_search_api_key`` 时注册。
     """
 
     workspace_root: str = "."
@@ -98,6 +101,11 @@ class ToolsSettings(BaseModel):
     shell_timeout_seconds: float = Field(default=30.0, gt=0, le=600)
     max_read_bytes: int = Field(default=256_000, gt=0)
     max_output_chars: int = Field(default=16_000, gt=0)
+    web_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    max_web_bytes: int = Field(default=512_000, gt=0)
+    web_search_api_url: str = "https://api.tavily.com/search"
+    web_search_api_key: SecretStr | None = None
+    web_search_max_results: int = Field(default=5, ge=1, le=20)
 
 
 class Settings(BaseSettings):

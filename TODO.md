@@ -19,6 +19,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - 内置工具：`get_current_time`、`calculate`；自定义工具只需继承 `Tool` 并在注册表登记
   - 本地工具：`list_directory`、`read_file`、`search_text`、`write_file`、`run_command`
     （文件工具受沙箱与敏感文件黑名单约束，命令执行默认关闭）
+  - 联网工具：`fetch_url`（带 SSRF 防护）、`web_search`（需配置搜索 API Key）
 - [ ] Planning：任务分解与执行计划
 - [x] Memory：会话内短期记忆（进程内 `session_id` 维度，含 LRU 淘汰与轮次对齐截断）
 - [ ] Memory：长期记忆存储与检索

@@ -42,6 +42,7 @@ src/agentos/
     ├── memory.py        # 会话短期记忆（MemoryStore / SessionState）
     ├── sandbox.py       # 工作区路径沙箱与敏感文件黑名单
     ├── local_tools.py   # 目录 / 文件 / 搜索 / 命令工具
+    ├── web_tools.py     # 网页抓取（SSRF 防护）与联网搜索
     └── builtin_tools.py # 通用工具与默认注册表工厂
 tests/            # 与 src 结构对应的测试文件
 docs/             # 架构、配置与开发文档
@@ -72,6 +73,7 @@ docs/             # 架构、配置与开发文档
 | `tests/test_tools.py` | 工具声明、JSON Schema 子集校验、注册表、执行与错误回填、内置工具 |
 | `tests/test_local_tools.py` | 路径沙箱、敏感文件拦截、目录/文件/搜索/写入、命令开关与超时 |
 | `tests/test_memory.py` | 会话存储、LRU 淘汰、轮次对齐截断、Runtime 集成与会话 API |
+| `tests/test_web_tools.py` | SSRF 防护、重定向重新校验、HTML 转文本、抓取与搜索 |
 | `tests/test_runtime.py` | 运行结果、历史消息、未知 Agent、空输入、迭代上限、注册表、多轮工具调用 |
 | `tests/test_api.py` | 健康探针、请求 ID、Agent CRUD、运行接口、工具查询与统一错误响应 |
 

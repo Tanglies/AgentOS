@@ -18,6 +18,7 @@ from typing import Any
 from agentos.core.config import ToolsSettings
 from agentos.runtime.local_tools import create_local_tools
 from agentos.runtime.tools import Tool, ToolRegistry
+from agentos.runtime.web_tools import create_web_tools
 
 MAX_POWER_EXPONENT = 64
 
@@ -125,8 +126,9 @@ class GetCurrentTimeTool(Tool):
 
 
 def create_default_tool_registry(settings: ToolsSettings | None = None) -> ToolRegistry:
-    """创建默认工具注册表：通用工具 + 按配置启用的本地工具。"""
+    """创建默认工具注册表：通用工具 + 本地工具 + 按配置启用的联网工具。"""
     resolved = settings or ToolsSettings()
     tools: list[Tool] = [GetCurrentTimeTool(), CalculateTool()]
     tools.extend(create_local_tools(resolved))
+    tools.extend(create_web_tools(resolved))
     return ToolRegistry(tools)
