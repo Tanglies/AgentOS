@@ -13,7 +13,8 @@ Tool Calling 已通过 :meth:`AgentRuntime._should_continue` 与
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -58,6 +59,30 @@ class RunResult(BaseModel):
     finish_reason: str | None = None
     tool_call_count: int = 0
     session_id: str | None = None
+
+
+class RunEvent(BaseModel):
+    """流式运行中的事件。
+
+    通过 ``type`` 区分载荷：
+
+    - ``start``       运行开始，带 ``run_id`` / ``agent`` / ``session_id``
+    - ``delta``       模型输出的文本增量，内容在 ``delta``
+    - ``tool_call``   模型请求调用工具，内容在 ``tool_call``
+    - ``tool_result`` 工具执行结果，内容在 ``tool_result``
+    - ``end``         运行结束，完整结果在 ``result``
+    - ``error``       运行失败，原因在 ``error``
+    """
+
+    type: Literal["start", "delta", "tool_call", "tool_result", "end", "error"]
+    run_id: str | None = None
+    agent: str | None = None
+    session_id: str | None = None
+    delta: str | None = None
+    tool_call: ToolCall | None = None
+    tool_result: ToolCallResult | None = None
+    result: RunResult | None = None
+    error: str | None = None
 
 
 class AgentRuntime:
@@ -116,12 +141,39 @@ class AgentRuntime:
     ) -> RunResult:
         """执行一次 Agent 运行并返回结构化结果。
 
-        当模型发起工具调用时，会执行工具并把结果作为 ``tool`` 消息回填，
-        然后再次调用模型，直到模型给出最终回答或触及 ``max_iterations``。
+        这是 :meth:`run_stream` 的薄封装：消费全部事件后返回最终结果。
+        需要边生成边返回（例如 SSE 推送）时请直接用 :meth:`run_stream`。
+        """
+        result: RunResult | None = None
+        async for event in self.run_stream(
+            agent, input_text, history=history, session_id=session_id
+        ):
+            if event.type == "end":
+                result = event.result
 
-        会话记忆默认开启：未传 ``session_id`` 时回退到 ``default_session_id``
-        （默认 ``default``）。命中会话时会先读取历史、运行成功后写回本轮消息，
-        此时忽略调用方传入的 ``history``；把默认会话设为空字符串可恢复无状态。
+        if result is None:  # pragma: no cover - 正常路径必然产出 end 事件
+            raise AgentRuntimeError("agent run produced no result")
+        return result
+
+    async def run_stream(
+        self,
+        agent: Agent | str,
+        input_text: str,
+        *,
+        history: Sequence[Message] | None = None,
+        session_id: str | None = None,
+    ) -> AsyncIterator[RunEvent]:
+        """流式执行一次 Agent 运行，逐段产出 :class:`RunEvent`。
+
+        典型事件顺序：
+
+        ``start`` → (``delta`` | ``tool_call`` | ``tool_result``)* → ``end``
+
+        文本增量是**真正边收边发**的：收到一个片段就立即产出 ``delta`` 事件，
+        不会先缓冲整段回答再一次性发出。
+
+        出错时先产出 ``error`` 事件，再继续抛出异常，让调用方既能推送错误、
+        又能走统一的异常处理路径。会话记忆与长期记忆的规则与 :meth:`run` 一致。
         """
         resolved = self._resolve_agent(agent)
         if not input_text.strip():
@@ -162,11 +214,40 @@ class AgentRuntime:
             },
         )
 
+        yield RunEvent(
+            type="start",
+            run_id=run_id,
+            agent=resolved.name,
+            session_id=resolved_session,
+        )
+
         try:
             for iteration in range(1, max_iterations + 1):
-                response = await self._llm.complete(
-                    [message.to_llm_message() for message in messages],
-                    options=options,
+                content_parts: list[str] = []
+                tool_calls: list[ToolCall] = []
+                finish_reason: str | None = None
+                chunk_usage: TokenUsage | None = None
+
+                async for chunk in self._llm.stream(
+                    [message.to_llm_message() for message in messages], options=options
+                ):
+                    if chunk.delta:
+                        content_parts.append(chunk.delta)
+                        # 真正的增量推送：收到即发，不缓冲
+                        yield RunEvent(type="delta", delta=chunk.delta)
+                    if chunk.tool_calls:
+                        tool_calls = chunk.tool_calls
+                    if chunk.finish_reason:
+                        finish_reason = chunk.finish_reason
+                    if chunk.usage is not None:
+                        chunk_usage = chunk.usage
+
+                response = LLMResponse(
+                    content="".join(content_parts),
+                    model=resolved.model or "",
+                    finish_reason=finish_reason,
+                    usage=chunk_usage,
+                    tool_calls=tool_calls or None,
                 )
                 messages.append(
                     Message.assistant(response.content, tool_calls=response.tool_calls)
@@ -188,14 +269,20 @@ class AgentRuntime:
                 if not self._should_continue(response, messages):
                     break
 
+                for call in response.tool_calls or []:
+                    yield RunEvent(type="tool_call", tool_call=call)
+
                 results = await self._run_tool_calls(response.tool_calls or [])
                 tool_call_count += len(results)
-                messages.extend(
-                    Message.tool(
-                        result.content, tool_call_id=result.tool_call_id, name=result.name
+                for tool_result in results:
+                    yield RunEvent(type="tool_result", tool_result=tool_result)
+                    messages.append(
+                        Message.tool(
+                            tool_result.content,
+                            tool_call_id=tool_result.tool_call_id,
+                            name=tool_result.name,
+                        )
                     )
-                    for result in results
-                )
             else:
                 raise AgentRuntimeError(
                     f"agent '{resolved.name}' exceeded max_iterations={max_iterations}",
@@ -237,6 +324,7 @@ class AgentRuntime:
                         }
                     },
                 )
+
             logger.info(
                 "agent run completed",
                 extra={
@@ -249,9 +337,12 @@ class AgentRuntime:
                     }
                 },
             )
-            return result
-        except Exception:
-            logger.exception("agent run failed", extra={"extra_fields": {"agent": resolved.name}})
+            yield RunEvent(type="end", result=result)
+        except Exception as exc:
+            logger.exception(
+                "agent run failed", extra={"extra_fields": {"agent": resolved.name}}
+            )
+            yield RunEvent(type="error", run_id=run_id, error=str(exc))
             raise
         finally:
             reset_run_id(run_token)

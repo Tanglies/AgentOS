@@ -16,6 +16,14 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **流式回复**：`POST /api/v1/runs/stream` 以 SSE 逐段推送
+  - `llm/base.py`：新增 `StreamChunk` 与 `LLMClient.stream()`；
+    默认实现退化为一次性返回，不支持流式的提供方无需改动
+  - `OpenAICompatibleLLMClient.stream()`：解析 SSE，`tool_calls` 分片按 `index` 聚合，
+    并请求 `stream_options.include_usage` 以拿到 token 用量
+  - `AgentRuntime.run_stream()`：产出 `start` / `delta` / `tool_call` / `tool_result` / `end` / `error` 事件
+  - `AgentRuntime.run()` 重构为 `run_stream()` 的薄封装，消除两份执行循环
+  - 文本增量**边收边发**，不做整段缓冲
 - **长期记忆**：跨会话持久化的记忆存储与检索
   - `runtime/long_term_memory.py`：基于 SQLite 的 `LongTermMemory`，进程重启不丢
   - 检索用关键词加权匹配：查询切成英文词与中文二元组，按命中词长度排序
@@ -84,6 +92,9 @@
 - 长期记忆用 SQLite 连接时显式 close：`with sqlite3.connect(...)` 只管理事务，不关闭连接，会泄漏句柄
 - 测试夹具把长期记忆库重定向到 `tmp_path`，避免跑测试时在工作区生成 `.agentos/memory.db`
 - 测试增至 232 个用例，新增 `tests/test_long_term_memory.py`（33 个）
+- 流式请求不做重试：一旦开始接收数据，重放会导致内容重复
+- SSE 响应带 `x-accel-buffering: no`，避免反向代理缓冲导致「流式看起来不流式」
+- 测试增至 248 个用例，新增 `tests/test_streaming.py`（16 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

@@ -77,6 +77,7 @@ docs/             # 架构、配置与开发文档
 | `tests/test_memory.py` | 会话存储、LRU 淘汰、轮次对齐截断、Runtime 集成与会话 API |
 | `tests/test_web_tools.py` | SSRF 防护、重定向重新校验、HTML 转文本、抓取与搜索 |
 | `tests/test_long_term_memory.py` | 持久化跨实例、关键词召回、记忆工具、自动召回注入与 API |
+| `tests/test_streaming.py` | SSE 解析、tool_calls 分片聚合、事件流顺序、SSE 端点 |
 | `tests/test_runtime.py` | 运行结果、历史消息、未知 Agent、空输入、迭代上限、注册表、多轮工具调用 |
 | `tests/test_api.py` | 健康探针、请求 ID、Agent CRUD、运行接口、工具查询与统一错误响应 |
 

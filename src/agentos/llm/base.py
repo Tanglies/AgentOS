@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field
@@ -141,6 +141,21 @@ class LLMResponse(BaseModel):
         return bool(self.tool_calls)
 
 
+class StreamChunk(BaseModel):
+    """流式补全中的一个片段。
+
+    同一个流里可能出现多类片段：
+
+    - 文本增量：``delta`` 非空
+    - 结束片段：``finish_reason`` / ``usage`` / ``tool_calls`` 非空
+    """
+
+    delta: str = ""
+    finish_reason: str | None = None
+    usage: TokenUsage | None = None
+    tool_calls: list[ToolCall] | None = None
+
+
 class LLMClient(ABC):
     """LLM 客户端接口。"""
 
@@ -154,6 +169,26 @@ class LLMClient(ABC):
         options: CompletionOptions | None = None,
     ) -> LLMResponse:
         """执行一次补全调用。"""
+
+    async def stream(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        options: CompletionOptions | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """流式补全。
+
+        默认实现退化为一次性返回：先产出完整文本，再产出一个结束片段。
+        支持流式的提供方应覆写本方法以逐段返回。
+        """
+        response = await self.complete(messages, options=options)
+        if response.content:
+            yield StreamChunk(delta=response.content)
+        yield StreamChunk(
+            finish_reason=response.finish_reason,
+            usage=response.usage,
+            tool_calls=response.tool_calls,
+        )
 
     async def aclose(self) -> None:
         """释放底层资源，默认无操作。"""

@@ -36,7 +36,7 @@
 | 运行内核 | `runtime/runtime.py` | 迭代调用模型、统计用量、产出 `RunResult` |
 | 会话记忆 | `runtime/memory.py` | 按 `session_id` 保存短期记忆，含 LRU 淘汰与轮次对齐截断 |
 | 长期记忆 | `runtime/long_term_memory.py` | SQLite 持久化 + 关键词加权召回，跨会话保留 |
-| LLM 契约 | `llm/base.py` | `LLMMessage` / `LLMResponse` / `LLMClient` |
+| LLM 契约 | `llm/base.py` | `LLMMessage` / `LLMResponse` / `StreamChunk` / `LLMClient` |
 | LLM 实现 | `llm/echo.py`, `llm/openai_compatible.py` | 回显客户端与 OpenAI 兼容 HTTP 客户端 |
 | LLM 工厂 | `llm/factory.py` | provider 注册表与实例化 |
 | 应用装配 | `api/app.py` | lifespan 建资源、挂载中间件、路由与异常处理 |
@@ -88,6 +88,9 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 记忆靠 `session_id` 显式启用 | 不传即无状态，保持向后兼容，也避免无意义的会话堆积 |
 | 记忆截断对齐完整轮次 | 拆散 `tool_calls` 与 `tool` 结果会让上游接口直接报错 |
 | 长期记忆用关键词而非向量 | 向量检索要引入 embedding 依赖与额外调用；关键词匹配用标准库即可覆盖常见召回 |
+| `run()` 是 `run_stream()` 的封装 | 避免两份执行循环；流式与非流式的记忆、工具、迭代语义天然一致 |
+| 流式默认实现退化为一次性返回 | 不支持流式的提供方无需改动即可接入，能力逐级增强 |
+| 流式不做重试 | 已开始接收数据后重放会导致内容重复 |
 
 ## 扩展点
 

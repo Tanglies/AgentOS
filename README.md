@@ -164,6 +164,33 @@ registry = ToolRegistry([WeatherTool()])
 工具执行失败（工具不存在、参数非法、内部异常）不会中断运行，而是把错误文本回填给模型，
 让模型自行决定是否修正参数或向用户说明。
 
+### 流式回复（SSE）
+
+`POST /api/v1/runs/stream` 以 Server-Sent Events 逐段推送，适合聊天类前端。
+事件类型：`start` / `delta` / `tool_call` / `tool_result` / `end` / `error`。
+
+```powershell
+curl.exe -N -X POST http://127.0.0.1:8000/api/v1/runs/stream `
+  -H "Content-Type: application/json" `
+  -d '{"input": "用三句话介绍 AgentOS"}'
+```
+
+```text
+event: start
+data: {"type": "start", "run_id": "run_...", "agent": "assistant", "session_id": "default"}
+
+event: delta
+data: {"type": "delta", "delta": "AgentOS "}
+
+event: end
+data: {"type": "end", "result": { ... 完整 RunResult ... }}
+```
+
+两个细节：文本增量**边收边发**，不做整段缓冲；模型调用工具时会先推 `tool_call` /
+`tool_result` 事件再继续输出。响应带 `x-accel-buffering: no`，避免 Nginx 缓冲。
+
+> 流式请求**不做重试** —— 一旦开始接收数据，重放会导致内容重复。
+
 ### 会话记忆（Memory）
 
 会话记忆**默认开启**：不传 `session_id` 时落到默认会话 `default`，
@@ -233,6 +260,7 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | GET | `/api/v1/agents/{name}` | 获取单个 Agent |
 | DELETE | `/api/v1/agents/{name}` | 注销 Agent |
 | POST | `/api/v1/runs` | 执行一次 Agent 运行 |
+| POST | `/api/v1/runs/stream` | 流式执行（SSE，逐段推送） |
 | GET | `/api/v1/tools` | 列出服务端已注册的工具 |
 | GET | `/api/v1/memories` | 列出长期记忆 |
 | POST | `/api/v1/memories` | 写入一条长期记忆 |

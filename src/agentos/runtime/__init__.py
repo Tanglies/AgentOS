@@ -18,7 +18,7 @@ from agentos.runtime.long_term_memory import LongTermMemory, MemoryRecord
 from agentos.runtime.memory import MemoryStore, SessionState
 from agentos.runtime.message import Message, MessageRole, utcnow
 from agentos.runtime.registry import AgentRegistry, create_default_registry
-from agentos.runtime.runtime import AgentRuntime, RunResult
+from agentos.runtime.runtime import AgentRuntime, RunEvent, RunResult
 from agentos.runtime.sandbox import (
     SandboxViolation,
     SensitiveFileError,
@@ -52,6 +52,7 @@ __all__ = [
     "SessionState",
     "ReadFileTool",
     "RunCommandTool",
+    "RunEvent",
     "RunResult",
     "SandboxViolation",
     "SearchTextTool",
