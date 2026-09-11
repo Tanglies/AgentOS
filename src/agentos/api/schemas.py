@@ -12,6 +12,7 @@ from agentos.runtime.agent import AGENT_NAME_PATTERN, Agent
 from agentos.runtime.long_term_memory import MemoryRecord
 from agentos.runtime.memory import SessionState
 from agentos.runtime.message import Message
+from agentos.runtime.planning import ExecutionPlan
 from agentos.runtime.runtime import RunResult
 from agentos.runtime.tools import Tool
 
@@ -198,6 +199,7 @@ class RunResponse(BaseModel):
     usage: TokenUsage | None = None
     tool_call_count: int = 0
     session_id: str | None = None
+    plan: ExecutionPlan | None = None
 
     @classmethod
     def from_result(cls, result: RunResult) -> RunResponse:
@@ -212,4 +214,5 @@ class RunResponse(BaseModel):
             usage=result.usage,
             tool_call_count=result.tool_call_count,
             session_id=result.session_id,
+            plan=result.plan,
         )

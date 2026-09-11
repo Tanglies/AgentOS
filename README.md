@@ -16,6 +16,7 @@
 | Agent 管理 API | 注册、查询、列表、注销 | ✅ v0.1 |
 | Tool Calling | 工具注册、参数校验、调用与结果回填 | ✅ v0.1 |
 | 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
+| Planning | 任务分解、步骤跟踪、进度注入系统提示词 | ✅ v0.1 |
 | Memory | 短期会话记忆（内存）+ 长期记忆（SQLite 持久化、关键词检索） | ✅ v0.1 |
 | Multi-Agent | 多 Agent 协作与消息路由 | 规划中 |
 | Evaluation / Observability | 评测集、指标与链路追踪 | 规划中 |
@@ -113,6 +114,8 @@ Runtime 会把工具声明透传给模型，并在模型请求调用时执行工
 | `web_search` | 联网搜索（需配置 API Key） | 需 Key |
 | `remember` | 写入长期记忆 | ✅ |
 | `recall` | 检索长期记忆 | ✅ |
+| `create_plan` | 创建执行计划（任务分解） | ✅ |
+| `update_plan_step` | 更新计划步骤状态 | ✅ |
 
 **安全模型**：文件工具的路径统一经过 `WorkspaceSandbox`，`..` 逃逸、外部绝对路径与
 外部符号链接都会被拒绝；`.env`、私钥、API Key、`secrets/` 等敏感文件被列入黑名单。

@@ -16,6 +16,12 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **Planning（任务分解与执行计划）**：Agent 动手前先拆解任务并跟踪进度
+  - `runtime/planning.py`：`ExecutionPlan` / `PlanStep` / `StepStatus`，
+    计划存在 `contextvars` 里，**天然按运行隔离**，并发运行互不干扰
+  - `runtime/plan_tools.py`：`create_plan` / `update_plan_step` 两个工具
+  - Runtime 在**每轮调用模型前**把当前计划并入系统提示词，模型始终看得到进度
+  - `RunResult.plan` 与 `RunResponse.plan` 暴露最终计划，便于观测
 - **流式回复**：`POST /api/v1/runs/stream` 以 SSE 逐段推送
   - `llm/base.py`：新增 `StreamChunk` 与 `LLMClient.stream()`；
     默认实现退化为一次性返回，不支持流式的提供方无需改动
@@ -95,6 +101,9 @@
 - 流式请求不做重试：一旦开始接收数据，重放会导致内容重复
 - SSE 响应带 `x-accel-buffering: no`，避免反向代理缓冲导致「流式看起来不流式」
 - 测试增至 248 个用例，新增 `tests/test_streaming.py`（16 个）
+- 计划注入放在**每轮循环开头**而不是运行开始：模型可能在上一轮才创建计划，
+  只注入一次会导致后续轮次看不到计划
+- 测试增至 271 个用例，新增 `tests/test_planning.py`（23 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

@@ -17,6 +17,7 @@ from agentos.runtime.local_tools import (
 from agentos.runtime.long_term_memory import LongTermMemory, MemoryRecord
 from agentos.runtime.memory import MemoryStore, SessionState
 from agentos.runtime.message import Message, MessageRole, utcnow
+from agentos.runtime.planning import ExecutionPlan, PlanStep, StepStatus, get_plan
 from agentos.runtime.registry import AgentRegistry, create_default_registry
 from agentos.runtime.runtime import AgentRuntime, RunEvent, RunResult
 from agentos.runtime.sandbox import (
@@ -41,6 +42,7 @@ __all__ = [
     "AgentRuntime",
     "CalculateTool",
     "FetchUrlTool",
+    "ExecutionPlan",
     "FunctionTool",
     "GetCurrentTimeTool",
     "ListDirectoryTool",
@@ -50,12 +52,14 @@ __all__ = [
     "Message",
     "MessageRole",
     "SessionState",
+    "PlanStep",
     "ReadFileTool",
     "RunCommandTool",
     "RunEvent",
     "RunResult",
     "SandboxViolation",
     "SearchTextTool",
+    "StepStatus",
     "SensitiveFileError",
     "Tool",
     "ToolArgumentError",
@@ -67,6 +71,7 @@ __all__ = [
     "create_default_registry",
     "create_default_tool_registry",
     "create_local_tools",
+    "get_plan",
     "create_web_tools",
     "truncate_text",
     "utcnow",

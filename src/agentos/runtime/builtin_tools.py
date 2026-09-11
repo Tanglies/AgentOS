@@ -19,6 +19,7 @@ from agentos.core.config import ToolsSettings
 from agentos.runtime.local_tools import create_local_tools
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory_tools import create_memory_tools
+from agentos.runtime.plan_tools import create_plan_tools
 from agentos.runtime.tools import Tool, ToolRegistry
 from agentos.runtime.web_tools import create_web_tools
 
@@ -143,4 +144,5 @@ def create_default_tool_registry(
     tools.extend(create_web_tools(resolved))
     if long_term is not None:
         tools.extend(create_memory_tools(long_term))
+    tools.extend(create_plan_tools())
     return ToolRegistry(tools)

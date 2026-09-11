@@ -40,6 +40,12 @@ from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
 from agentos.runtime.message import Message, MessageRole
+from agentos.runtime.planning import (
+    ExecutionPlan,
+    get_plan,
+    reset_plan,
+    set_plan,
+)
 from agentos.runtime.registry import AgentRegistry, create_default_registry
 from agentos.runtime.tools import ToolCallResult, ToolRegistry
 
@@ -59,6 +65,7 @@ class RunResult(BaseModel):
     finish_reason: str | None = None
     tool_call_count: int = 0
     session_id: str | None = None
+    plan: ExecutionPlan | None = None
 
 
 class RunEvent(BaseModel):
@@ -191,10 +198,14 @@ class AgentRuntime:
         run_id = new_id("run_")
         run_token = set_run_id(run_id)
         agent_token = set_agent_name(resolved.name)
+        # 计划按运行隔离：开始时清空，结束时随上下文一起还原
+        plan_token = set_plan(None)
         started_at = time.perf_counter()
         max_iterations = resolved.max_iterations or self._settings.max_iterations
         messages = resolved.build_messages(input_text, history=history)
-        self._inject_long_term(messages, input_text)
+        base_prompt = resolved.system_prompt
+        long_term_context = self._recall_long_term(input_text)
+        self._rebuild_system_prompt(messages, base_prompt, long_term_context)
         # 本轮消息从 user 开始，用于运行结束后写回会话记忆
         new_turn_start = len(messages) - 1
         options = self._build_options(resolved)
@@ -223,6 +234,10 @@ class AgentRuntime:
 
         try:
             for iteration in range(1, max_iterations + 1):
+                # 计划可能在上一轮被更新，每轮都重建系统提示词
+                if self._rebuild_system_prompt(messages, base_prompt, long_term_context):
+                    new_turn_start += 1
+
                 content_parts: list[str] = []
                 tool_calls: list[ToolCall] = []
                 finish_reason: str | None = None
@@ -312,6 +327,7 @@ class AgentRuntime:
                 finish_reason=response.finish_reason,
                 tool_call_count=tool_call_count,
                 session_id=resolved_session,
+                plan=get_plan(),
             )
             if resolved_session:
                 self._memory.append(resolved_session, messages[new_turn_start:])
@@ -345,6 +361,7 @@ class AgentRuntime:
             yield RunEvent(type="error", run_id=run_id, error=str(exc))
             raise
         finally:
+            reset_plan(plan_token)
             reset_run_id(run_token)
             reset_agent_name(agent_token)
 
@@ -352,27 +369,47 @@ class AgentRuntime:
         """关闭底层 LLM 客户端。"""
         await self._llm.aclose()
 
-    def _inject_long_term(self, messages: list[Message], query: str) -> None:
-        """把召回的相关长期记忆并入系统提示词。
-
-        并入而不是新增一条 system 消息，是为了不改变消息顺序假设，
-        也避免部分提供方对多条 system 消息的兼容性问题。
-        """
+    def _recall_long_term(self, query: str) -> str | None:
+        """召回相关长期记忆，返回可注入系统提示词的文本。"""
         if self._long_term is None or not self._long_term.auto_recall:
-            return
+            return None
 
         records = self._long_term.recall(query)
         if not records:
-            return
+            return None
 
         lines = ["[长期记忆] 以下是与当前问题相关的历史记录，供参考："]
         lines.extend(f"- {record.content}" for record in records)
-        context = "\n".join(lines)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _rebuild_system_prompt(
+        messages: list[Message], base_prompt: str | None, long_term_context: str | None
+    ) -> bool:
+        """按「基础提示词 + 长期记忆 + 执行计划」重组系统提示词。
+
+        执行计划每轮都可能变化，所以每次调用模型前都要重建。
+        返回是否**新插入**了 system 消息 —— 调用方需要据此调整消息切片下标。
+        """
+        parts = [base_prompt] if base_prompt else []
+        if long_term_context:
+            parts.append(long_term_context)
+
+        plan = get_plan()
+        if plan is not None and plan.steps:
+            parts.append(plan.render())
+
+        content = "\n\n".join(parts)
+        if not content:
+            return False
 
         if messages and messages[0].role == MessageRole.SYSTEM:
-            messages[0] = Message.system(f"{messages[0].content}\n\n{context}")
-        else:
-            messages.insert(0, Message.system(context))
+            if messages[0].content != content:
+                messages[0] = Message.system(content)
+            return False
+
+        messages.insert(0, Message.system(content))
+        return True
 
     def _resolve_agent(self, agent: Agent | str) -> Agent:
         if isinstance(agent, Agent):
