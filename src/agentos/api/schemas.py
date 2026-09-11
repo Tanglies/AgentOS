@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from agentos.llm.base import TokenUsage
 from agentos.runtime.agent import AGENT_NAME_PATTERN, Agent
+from agentos.runtime.memory import SessionState
 from agentos.runtime.message import Message
 from agentos.runtime.runtime import RunResult
 from agentos.runtime.tools import Tool
@@ -94,12 +96,60 @@ class AgentListResponse(BaseModel):
     total: int
 
 
+class SessionSummary(BaseModel):
+    """会话摘要。"""
+
+    session_id: str
+    turns: int
+    messages: int
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_state(cls, state: SessionState) -> SessionSummary:
+        return cls(
+            session_id=state.session_id,
+            turns=state.turn_count,
+            messages=len(state.messages),
+            created_at=state.created_at,
+            updated_at=state.updated_at,
+        )
+
+
+class SessionDetail(BaseModel):
+    """会话详情。"""
+
+    session_id: str
+    turns: int
+    messages: list[Message]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_state(cls, state: SessionState) -> SessionDetail:
+        return cls(
+            session_id=state.session_id,
+            turns=state.turn_count,
+            messages=state.messages,
+            created_at=state.created_at,
+            updated_at=state.updated_at,
+        )
+
+
+class SessionListResponse(BaseModel):
+    """会话列表响应。"""
+
+    items: list[SessionSummary]
+    total: int
+
+
 class RunRequest(BaseModel):
     """执行 Agent 的请求体。"""
 
     agent: str | None = Field(default=None, max_length=64)
     input: str = Field(min_length=1, max_length=32_000)
     history: list[Message] = Field(default_factory=list)
+    session_id: str | None = Field(default=None, max_length=64)
 
 
 class RunResponse(BaseModel):
@@ -114,6 +164,7 @@ class RunResponse(BaseModel):
     finish_reason: str | None = None
     usage: TokenUsage | None = None
     tool_call_count: int = 0
+    session_id: str | None = None
 
     @classmethod
     def from_result(cls, result: RunResult) -> RunResponse:
@@ -127,4 +178,5 @@ class RunResponse(BaseModel):
             finish_reason=result.finish_reason,
             usage=result.usage,
             tool_call_count=result.tool_call_count,
+            session_id=result.session_id,
         )

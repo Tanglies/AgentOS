@@ -71,6 +71,17 @@ class APISettings(BaseModel):
     cors_origins: tuple[str, ...] = ()
 
 
+class MemorySettings(BaseModel):
+    """会话记忆配置。
+
+    当前实现是进程内短期记忆：按 ``session_id`` 保存最近若干轮对话。
+    会话数超过 ``max_sessions`` 时按 LRU 淘汰最久未使用的会话。
+    """
+
+    max_messages_per_session: int = Field(default=50, ge=1, le=1000)
+    max_sessions: int = Field(default=1000, ge=1, le=100_000)
+
+
 class ToolsSettings(BaseModel):
     """本地工具（文件 / 命令）配置。
 
@@ -108,6 +119,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     api: APISettings = Field(default_factory=APISettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
 
     @property

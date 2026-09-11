@@ -33,6 +33,7 @@
 | 路径沙箱 | `runtime/sandbox.py` | 把文件操作约束在 `workspace_root` 内，并拦截敏感文件 |
 | 本地工具 | `runtime/local_tools.py` | 目录浏览、文件读写、文本搜索、命令执行 |
 | 运行内核 | `runtime/runtime.py` | 迭代调用模型、统计用量、产出 `RunResult` |
+| 会话记忆 | `runtime/memory.py` | 按 `session_id` 保存短期记忆，含 LRU 淘汰与轮次对齐截断 |
 | LLM 契约 | `llm/base.py` | `LLMMessage` / `LLMResponse` / `LLMClient` |
 | LLM 实现 | `llm/echo.py`, `llm/openai_compatible.py` | 回显客户端与 OpenAI 兼容 HTTP 客户端 |
 | LLM 工厂 | `llm/factory.py` | provider 注册表与实例化 |
@@ -48,7 +49,7 @@ RequestContextMiddleware        生成 request_id，写入 X-Request-ID
   ▼
 runs.create_run                 解析请求，选择 Agent
   ▼
-AgentRuntime.run                组装消息，绑定 run_id
+AgentRuntime.run                绑定 run_id；有 session_id 时从 MemoryStore 取历史
   ▼
 LLMClient.complete              调用模型（echo 或 OpenAI 兼容，携带 tools 声明）
   ▼
@@ -81,6 +82,8 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 文件工具统一走路径沙箱 | 模型可能被提示注入诱导读写任意路径，沙箱把影响面限制在 `workspace_root` |
 | 敏感文件黑名单 | 避免 `.env`、私钥等凭据被读进模型上下文或写入日志 |
 | `run_command` 默认关闭 | shell 无法被路径沙箱约束，只能用显式开关 + 超时 + 输出截断降低风险 |
+| 记忆靠 `session_id` 显式启用 | 不传即无状态，保持向后兼容，也避免无意义的会话堆积 |
+| 记忆截断对齐完整轮次 | 拆散 `tool_calls` 与 `tool` 结果会让上游接口直接报错 |
 
 ## 扩展点
 
@@ -93,5 +96,5 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 
 ## v0.1 边界
 
-当前版本是工程基座，**已实现 Tool Calling**。**尚未实现**：Memory、Multi-Agent、鉴权与配额、
-持久化存储、评测体系、指标与链路追踪、容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。
+当前版本是工程基座，**已实现 Tool Calling 与会话短期记忆**。**尚未实现**：长期记忆（向量检索）、
+Multi-Agent、鉴权与配额、持久化存储、评测体系、指标与链路追踪、容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。

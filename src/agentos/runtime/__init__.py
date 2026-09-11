@@ -14,6 +14,7 @@ from agentos.runtime.local_tools import (
     WriteFileTool,
     create_local_tools,
 )
+from agentos.runtime.memory import MemoryStore, SessionState
 from agentos.runtime.message import Message, MessageRole, utcnow
 from agentos.runtime.registry import AgentRegistry, create_default_registry
 from agentos.runtime.runtime import AgentRuntime, RunResult
@@ -39,8 +40,10 @@ __all__ = [
     "FunctionTool",
     "GetCurrentTimeTool",
     "ListDirectoryTool",
+    "MemoryStore",
     "Message",
     "MessageRole",
+    "SessionState",
     "ReadFileTool",
     "RunCommandTool",
     "RunResult",

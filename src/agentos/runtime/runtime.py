@@ -36,6 +36,7 @@ from agentos.llm.base import (
 )
 from agentos.runtime.agent import Agent
 from agentos.runtime.builtin_tools import create_default_tool_registry
+from agentos.runtime.memory import MemoryStore
 from agentos.runtime.message import Message
 from agentos.runtime.registry import AgentRegistry, create_default_registry
 from agentos.runtime.tools import ToolCallResult, ToolRegistry
@@ -55,6 +56,7 @@ class RunResult(BaseModel):
     duration_ms: float = 0.0
     finish_reason: str | None = None
     tool_call_count: int = 0
+    session_id: str | None = None
 
 
 class AgentRuntime:
@@ -67,6 +69,7 @@ class AgentRuntime:
         settings: RuntimeSettings | None = None,
         registry: AgentRegistry | None = None,
         tools: ToolRegistry | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self._llm = llm_client
         self._settings = settings or RuntimeSettings()
@@ -74,6 +77,7 @@ class AgentRuntime:
             registry if registry is not None else create_default_registry(self._settings)
         )
         self._tools = tools if tools is not None else create_default_tool_registry()
+        self._memory = memory if memory is not None else MemoryStore()
 
     @property
     def llm_client(self) -> LLMClient:
@@ -88,6 +92,10 @@ class AgentRuntime:
         return self._tools
 
     @property
+    def memory(self) -> MemoryStore:
+        return self._memory
+
+    @property
     def settings(self) -> RuntimeSettings:
         return self._settings
 
@@ -97,15 +105,23 @@ class AgentRuntime:
         input_text: str,
         *,
         history: Sequence[Message] | None = None,
+        session_id: str | None = None,
     ) -> RunResult:
         """执行一次 Agent 运行并返回结构化结果。
 
         当模型发起工具调用时，会执行工具并把结果作为 ``tool`` 消息回填，
         然后再次调用模型，直到模型给出最终回答或触及 ``max_iterations``。
+
+        传入 ``session_id`` 时启用会话记忆：先读取该会话的历史消息，
+        运行成功后再把本轮产生的消息写回；此时忽略调用方传入的 ``history``。
         """
         resolved = self._resolve_agent(agent)
         if not input_text.strip():
             raise ValidationError("input must not be empty", details={"agent": resolved.name})
+
+        # 会话记忆优先：显式指定 session_id 时，历史完全由记忆决定
+        if session_id:
+            history = self._memory.history(session_id)
 
         run_id = new_id("run_")
         run_token = set_run_id(run_id)
@@ -113,6 +129,8 @@ class AgentRuntime:
         started_at = time.perf_counter()
         max_iterations = resolved.max_iterations or self._settings.max_iterations
         messages = resolved.build_messages(input_text, history=history)
+        # 本轮消息从 user 开始，用于运行结束后写回会话记忆
+        new_turn_start = len(messages) - 1
         options = self._build_options(resolved)
         usage: TokenUsage | None = None
         response: LLMResponse | None = None
@@ -192,7 +210,19 @@ class AgentRuntime:
                 duration_ms=round(duration_ms, 3),
                 finish_reason=response.finish_reason,
                 tool_call_count=tool_call_count,
+                session_id=session_id,
             )
+            if session_id:
+                self._memory.append(session_id, messages[new_turn_start:])
+                logger.debug(
+                    "session memory updated",
+                    extra={
+                        "extra_fields": {
+                            "session_id": session_id,
+                            "session_messages": len(messages) - new_turn_start,
+                        }
+                    },
+                )
             logger.info(
                 "agent run completed",
                 extra={

@@ -16,7 +16,7 @@
 | Agent 管理 API | 注册、查询、列表、注销 | ✅ v0.1 |
 | Tool Calling | 工具注册、参数校验、调用与结果回填 | ✅ v0.1 |
 | 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
-| Memory | 会话记忆与长期记忆 | 规划中 |
+| Memory | 会话短期记忆（`session_id`）；长期记忆与向量检索 | ✅ 短期 / 规划长期 |
 | Multi-Agent | 多 Agent 协作与消息路由 | 规划中 |
 | Evaluation / Observability | 评测集、指标与链路追踪 | 规划中 |
 | Docker 部署 | 镜像与一键启动 | 规划中 |
@@ -155,6 +155,34 @@ registry = ToolRegistry([WeatherTool()])
 工具执行失败（工具不存在、参数非法、内部异常）不会中断运行，而是把错误文本回填给模型，
 让模型自行决定是否修正参数或向用户说明。
 
+### 会话记忆（Memory）
+
+请求带上 `session_id` 即启用短期记忆，服务端自动保存并复用该会话的最近对话；
+不传则保持无状态（与之前行为一致）。
+
+```powershell
+# 第 1 轮
+curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
+  -H "Content-Type: application/json" `
+  -d '{"input": "我叫小明", "session_id": "chat-1"}'
+
+# 第 2 轮：服务端自动带上第 1 轮历史
+curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
+  -H "Content-Type: application/json" `
+  -d '{"input": "我叫什么名字", "session_id": "chat-1"}'
+```
+
+会话记忆当前是**进程内实现**，重启即清空；持久化与长期记忆（向量检索）属于后续阶段。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/v1/sessions` | 列出全部会话 |
+| `GET /api/v1/sessions/{id}` | 查看会话消息 |
+| `DELETE /api/v1/sessions/{id}` | 清除会话记忆 |
+
+容量由 `AGENTOS_MEMORY__MAX_MESSAGES_PER_SESSION`（默认 50）与
+`AGENTOS_MEMORY__MAX_SESSIONS`（默认 1000，超出按 LRU 淘汰）控制。
+
 ## API 一览
 
 | 方法 | 路径 | 说明 |
@@ -167,6 +195,9 @@ registry = ToolRegistry([WeatherTool()])
 | DELETE | `/api/v1/agents/{name}` | 注销 Agent |
 | POST | `/api/v1/runs` | 执行一次 Agent 运行 |
 | GET | `/api/v1/tools` | 列出服务端已注册的工具 |
+| GET | `/api/v1/sessions` | 列出全部会话记忆 |
+| GET | `/api/v1/sessions/{id}` | 获取会话消息详情 |
+| DELETE | `/api/v1/sessions/{id}` | 清除会话记忆 |
 | GET | `/docs` | Swagger UI（`AGENTOS_API__ENABLE_DOCS=false` 可关闭） |
 
 所有错误响应格式统一：

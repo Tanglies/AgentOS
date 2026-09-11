@@ -15,5 +15,10 @@ async def create_run(
     payload: RunRequest, runtime: RuntimeDep, settings: SettingsDep
 ) -> RunResponse:
     agent_name = payload.agent or settings.runtime.default_agent
-    result = await runtime.run(agent_name, payload.input, history=payload.history)
+    result = await runtime.run(
+        agent_name,
+        payload.input,
+        history=payload.history,
+        session_id=payload.session_id,
+    )
     return RunResponse.from_result(result)

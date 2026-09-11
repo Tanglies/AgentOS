@@ -1,6 +1,7 @@
 """核心基础设施：配置、日志、请求上下文与异常体系。"""
 
 from agentos.core.config import (
+    MemorySettings,
     Settings,
     ToolsSettings,
     get_settings,
@@ -37,6 +38,7 @@ __all__ = [
     "LLMProviderError",
     "LLMTimeoutError",
     "NotFoundError",
+    "MemorySettings",
     "Settings",
     "ToolsSettings",
     "ValidationError",

@@ -20,7 +20,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - 本地工具：`list_directory`、`read_file`、`search_text`、`write_file`、`run_command`
     （文件工具受沙箱与敏感文件黑名单约束，命令执行默认关闭）
 - [ ] Planning：任务分解与执行计划
-- [ ] Memory：会话内短期记忆
+- [x] Memory：会话内短期记忆（进程内 `session_id` 维度，含 LRU 淘汰与轮次对齐截断）
 - [ ] Memory：长期记忆存储与检索
 - [ ] Multi-Agent：多 Agent 协作与消息路由
 

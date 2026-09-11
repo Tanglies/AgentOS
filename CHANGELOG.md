@@ -16,6 +16,13 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **会话短期记忆**：Agent 可在多轮对话中记住上下文
+  - `runtime/memory.py`：`MemoryStore` 进程内实现，按 `session_id` 隔离会话
+  - 显式传 `session_id` 才启用；不传保持无状态，向后兼容
+  - 双容量约束：单会话消息数上限 + 全局会话数 LRU 淘汰
+  - 截断按完整轮次对齐，避免拆散 `assistant(tool_calls)` 与 `tool` 结果
+  - Runtime 新增 `session_id` 参数与 `RunResult.session_id`
+  - API：`RunRequest.session_id`，新增 `GET/DELETE /api/v1/sessions`
 - **本地工具集**：让 Agent 具备编码助手式的文件与命令能力
   - `runtime/sandbox.py`：`WorkspaceSandbox` 路径沙箱（拒绝 `..` 逃逸、外部绝对路径、
     指向外部的符号链接）与敏感文件黑名单（`.env`、私钥、API Key、`secrets/` 等）
@@ -50,6 +57,8 @@
 - `run_command` 不做沙箱（shell 内部可访问任意路径），只能靠默认关闭 + 超时 + 输出截断降低风险
 - 搜索遇到敏感文件时静默跳过而非报错，避免单个 `.env` 让整次搜索失败
 - 测试增至 132 个用例，新增 `tests/test_local_tools.py`（35 个）覆盖沙箱、限额与命令开关
+- 会话记忆只在运行**成功**时写回，失败运行不会污染历史；系统提示词不写入记忆
+- 测试增至 157 个用例，新增 `tests/test_memory.py`（25 个）覆盖存储、LRU、截断与 API
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

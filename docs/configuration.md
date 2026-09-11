@@ -57,6 +57,19 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 | `AGENTOS_RUNTIME__MAX_ITERATIONS` | `8` | 单次运行的最大迭代轮数（1-64），超出抛 `AgentRuntimeError` |
 | `AGENTOS_RUNTIME__SYSTEM_PROMPT` | `You are AgentOS, a helpful AI agent.` | 默认助手的系统提示词 |
 
+### 记忆（`memory`）
+
+会话记忆当前是**进程内短期记忆**：请求带上 `session_id` 即启用，进程重启清空。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_MEMORY__MAX_MESSAGES_PER_SESSION` | `50` | 单会话保留的最大消息条数（1-1000） |
+| `AGENTOS_MEMORY__MAX_SESSIONS` | `1000` | 进程内会话数上限，超出按 LRU 淘汰 |
+
+截断按**完整轮次**对齐：只保留从一个 `user` 消息开始的片段，
+避免把 `assistant(tool_calls)` 与其后的 `tool` 结果拆散 —— 那样再发给
+OpenAI 兼容接口会因为 tool_calls 缺少对应结果而报错。
+
 ### 工具（`tools`）
 
 本地工具让 Agent 具备读写工作区、搜索文本与执行命令的能力。
