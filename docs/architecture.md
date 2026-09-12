@@ -53,7 +53,10 @@
 | 数据库连接 | `database/connection.py` | `Database` / `DatabaseManager`：连接、建目录、建表与迁移账本 |
 | 迁移机制 | `database/migrations/` | `Migration` 与 `MigrationRunner`，按版本幂等应用 |
 | Repository 基座 | `database/repository.py` | `Repository`、`:func:`build_filter`` 与共享参数化查询工具 |
-| 持久化模型 | `database/models.py` | `SchemaMigration`、`Pagination` 等跨仓储模型 |
+| 持久化模型 | `database/models.py` | `AgentRecord`、`SchemaMigration`、`Pagination` |
+| Agent 服务 | `runtime/services/agent_service.py` | Agent 创建、分页、详情、删除与审计编排 |
+| Dashboard 服务 | `runtime/services/dashboard_service.py` | 运行总览、工具统计、最近错误读模型 |
+| 平台仓储入口 | `repositories/` | Agent / Run / Tool 的规范导入入口 |
 | 评估指标 | `evaluation/metrics.py` | latency / token / tool-call 指标与可扩展 `Metric` 抽象 |
 | 评估采集 | `evaluation/collector.py` | `Evaluator` / `EvaluationCollector` |
 | 评估报告 | `evaluation/report.py` | `EvaluationReport` 的 JSON 与 Markdown 格式化 |
@@ -114,13 +117,15 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 执行计划用 `contextvars` 存储 | 按运行自动隔离，并发安全，无需显式清理 |
 | 计划每轮重新注入 | 模型可能中途才创建或更新计划，只注入一次会看不到进度 |
 | Agent 以工具形式暴露 | 复用既有的工具调用链路做消息路由，不需要另造一套编排引擎 |
-| Agent 用 JSON 列存储 | Agent 定义仍在演进，JSON 列免去频繁改表结构 |
+| Agent 结构化列 + JSON 兼容列 | 常用字段可查询、旧数据可回退到 `payload`，同时保留演进空间 |
+| API 通过 Service 编排 | 路由只做 DTO 和权限，创建、删除、审计与分页业务集中在 runtime service |
+| Dashboard 只读投影 | 复用 runs / audit / registry，不维护第二份统计数据 |
 | 运行记录同时建索引列与 JSON 列 | 索引列用于过滤排序，JSON 列承载完整结果 |
 | 运行列表不返回消息 | 历史查询只关心摘要，完整轨迹按需取详情 |
 | 上下文字段用 `contextvars` | 异步链路自动传递，无需逐层透传参数 |
 | 审计与运行记录分表 | 前者面向追责（量小固定），后者面向排查（量大含轨迹） |
 | 审计记录调用方身份而非原文 | 数据库密钥用名称，静态密钥用不可反推指纹 |
-| 注册表持久化默认关闭 | 内存实现零依赖、启动即用；需要跨重启保留时再开启 |
+| 注册表持久化默认开启 | Agent 定义跨重启保留；嵌入式场景可显式切回内存实现 |
 | 显式迁移账本 | 只靠 `CREATE TABLE IF NOT EXISTS` 无法表达字段变更，`schema_migrations` 可按版本幂等执行 |
 | 评估与运行记录解耦 | 采集器只依赖 `RunRepository`，未来可以替换统计源或增加自定义 `Metric` |
 | 认证默认关闭 | 本地开发的便利性优先；对外暴露时由部署方显式开启 |
@@ -143,6 +148,7 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 ## v0.1 边界
 
 阶段 1 已全部完成（Tool Calling、Planning、短期与长期记忆、Multi-Agent 委托、流式回复），
-阶段 2 已完成 SQLite 持久化结构对齐、迁移账本、Repository 基座、API Key 权限与工具执行鉴权；
-阶段 3 已完成基础 Evaluation 与审计/链路追踪。**尚未实现**：用户账号与工作区隔离、
+阶段 2 已完成 SQLite 持久化结构对齐、Agent 生命周期管理、Run 查询完善、
+Dashboard 只读接口、迁移账本、Repository 基座与 API Key 权限；阶段 3 已完成
+基础 Evaluation 与审计/链路追踪。**尚未实现**：用户账号与工作区隔离、
 配额与限流、向量检索、评测集与自动评分、Prometheus/OpenTelemetry 导出与容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。

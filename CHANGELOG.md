@@ -7,6 +7,17 @@
 
 ### 新增
 
+- **Agent Platform MVP（Prompt 第四轮）**
+  - `agents` 表升级为结构化字段，并保留 `payload` 兼容旧数据库
+  - 新增 `AgentService`：创建、分页列表、详情、删除和生命周期审计
+  - Agent API 支持 `page/page_size`，返回完整配置、`id` 与时间戳
+  - Run History 同时支持 `page/page_size` 与 `limit/offset`，新增 `token_usage`
+  - 新增 Dashboard 只读接口：`overview` / `tools` / `errors`
+  - `ToolRepository` 从审计事件聚合工具调用次数，不复制统计表
+  - Evaluation Summary 增加顶层 `average_latency` / `average_tokens` / `average_tool_calls`
+  - 新增 `dashboard:read` 权限并纳入默认数据库密钥权限
+  - 新增 44 个平台测试，测试总数增至 **532 passed**
+
 - **数据库与评估模块结构对齐**
   - 新增 `agentos.database`：`DatabaseManager`、连接管理、schema 迁移账本、
     `Repository` 基座与 `database/models.py`

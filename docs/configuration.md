@@ -119,8 +119,8 @@ API Key 认证**默认关闭**以方便本地开发；对外暴露前必须开�
 
 权限采用 `资源:动作` 命名，包含 `agent:read` / `agent:write` / `run:create` /
 `run:read` / `tool:read` / `tool:execute` / `session:read` / `session:write` /
-`memory:read` / `memory:write` / `evaluation:read` / `audit:read` /
-`apikey:admin`；`*` 表示全部权限。路由级依赖负责授权，工具执行点还会再次
+`memory:read` / `memory:write` / `evaluation:read` / `dashboard:read` /
+`audit:read` / `apikey:admin`；`*` 表示全部权限。路由级依赖负责授权，工具执行点还会再次
 检查 `tool:execute`，确保模型无法绕过路由权限直接调用工具。
 
 数据库只保存 SHA-256 哈希，明文只在 `POST /api/v1/api-keys` 响应中出现一次；

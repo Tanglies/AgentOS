@@ -19,7 +19,8 @@
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
 | 日志系统 | 结构化日志（console / json）、请求上下文、敏感字段脱敏 | ✅ v0.1 |
-| Agent 管理 API | 注册、查询、列表、注销 | ✅ v0.1 |
+| Agent 生命周期 | 创建、分页查询、详情、删除，结构化字段持久化 | ✅ v0.1 |
+| Dashboard | 运行总览、工具调用统计、最近错误 | ✅ v0.1 |
 | Tool Calling | 工具注册、参数校验、调用与结果回填 | ✅ v0.1 |
 | 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
 | Planning | 任务分解、步骤跟踪、进度注入系统提示词 | ✅ v0.1 |
@@ -233,14 +234,22 @@ curl.exe http://127.0.0.1:8000/api/v1/runs -H "X-API-Key: sk-agentos-..."
 # 历史列表（默认最新在前）
 curl.exe "http://127.0.0.1:8000/api/v1/runs?agent=assistant&limit=10"
 
-# 最早在前
-curl.exe "http://127.0.0.1:8000/api/v1/runs?order=asc"
+# 页码分页，响应同时保留 limit/offset 兼容
+curl.exe "http://127.0.0.1:8000/api/v1/runs?page=2&page_size=10"
+
+# 按 created_at 排序
+curl.exe "http://127.0.0.1:8000/api/v1/runs?sort=-created_at"
 
 # 单次运行详情（含完整消息轨迹）
 curl.exe "http://127.0.0.1:8000/api/v1/runs/run_xxxx"
 
 # 评估汇总
 curl.exe "http://127.0.0.1:8000/api/v1/evaluation/summary?agent=assistant"
+
+# Dashboard 只读数据
+curl.exe "http://127.0.0.1:8000/api/v1/dashboard/overview"
+curl.exe "http://127.0.0.1:8000/api/v1/dashboard/tools"
+curl.exe "http://127.0.0.1:8000/api/v1/dashboard/errors"
 ```
 
 评估指标基于运行记录聚合，**不调用模型打分**：
@@ -251,6 +260,7 @@ curl.exe "http://127.0.0.1:8000/api/v1/evaluation/summary?agent=assistant"
 | token | prompt / completion / total / 每次运行均值 |
 | 成功率 | completed / 总数 |
 | 工具调用 | 合计 / 均值 / 单次最多 / 多少运行用了工具 |
+| 顶层均值 | `average_latency` / `average_tokens` / `average_tool_calls` |
 
 ```json
 {
@@ -263,7 +273,8 @@ curl.exe "http://127.0.0.1:8000/api/v1/evaluation/summary?agent=assistant"
 
 > 数据访问分三层：`database/connection.py` 管连接、建表与迁移，
 > `database/repository.py` 定义 Repository 基座，`runtime/repositories.py` 管 SQL 与模型转换；
-> 三个存储只是业务语义的外壳。旧 `core/database.py` 路径仍保留兼容。
+> 三个存储只是业务语义的外壳。规范 Repository 入口位于 `repositories/`，
+> 旧 `core/database.py` 路径仍保留兼容。
 
 ### 多 Agent 协作
 
@@ -381,14 +392,17 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | --- | --- | --- |
 | GET | `/health` | 存活探针，返回版本、环境与运行时长 |
 | GET | `/health/ready` | 就绪探针，返回 LLM 提供方与已注册 Agent 数量 |
-| GET | `/api/v1/agents` | 列出全部 Agent |
-| POST | `/api/v1/agents` | 注册 Agent |
-| GET | `/api/v1/agents/{name}` | 获取单个 Agent |
-| DELETE | `/api/v1/agents/{name}` | 注销 Agent |
+| GET | `/api/v1/agents` | 分页列出 Agent，支持 `page` / `page_size` |
+| POST | `/api/v1/agents` | 创建 Agent |
+| GET | `/api/v1/agents/{name}` | 获取 Agent 完整详情 |
+| DELETE | `/api/v1/agents/{name}` | 删除 Agent |
 | POST | `/api/v1/runs` | 执行一次 Agent 运行 |
 | POST | `/api/v1/runs/stream` | 流式执行（SSE，逐段推送） |
-| GET | `/api/v1/runs` | 查询运行历史（支持过滤与分页） |
+| GET | `/api/v1/runs` | 查询运行历史（支持 agent/status 过滤、page/page_size 与 created_at 排序） |
 | GET | `/api/v1/runs/{run_id}` | 查看单次运行详情（含消息轨迹） |
+| GET | `/api/v1/dashboard/overview` | Dashboard 总览指标 |
+| GET | `/api/v1/dashboard/tools` | 工具调用统计 |
+| GET | `/api/v1/dashboard/errors` | 最近失败运行 |
 | GET | `/api/v1/evaluation/summary` | 评估指标汇总（延迟 / token / 成功率 / 工具调用） |
 | GET | `/api/v1/audit` | 查询审计日志（支持过滤与排序） |
 | GET | `/api/v1/api-keys` | 列出 API Key 元数据（管理员） |
@@ -418,14 +432,17 @@ src/agentos/
 ├── database/     # SQLite 连接、迁移、Repository 基座与持久化模型
 ├── evaluation/   # 评估指标、采集器与报告格式化
 ├── llm/          # LLM 客户端抽象、echo 与 OpenAI 兼容实现、工厂
-└── runtime/      # Agent、Message、注册表、持久化仓储与执行内核
-tests/            # pytest 测试：配置 / 日志 / LLM / Runtime / API / 持久化 / 评估
-docs/             # 架构、配置、数据库、评估、可观测性与开发文档
+├── repositories/ # Agent / Run / Tool 规范 Repository 入口
+└── runtime/      # Agent、Message、注册表、服务层与执行内核
+    └── services/ # Agent 生命周期与 Dashboard 读模型服务
+tests/            # pytest 测试：配置 / 日志 / LLM / Runtime / API / 持久化 / 平台
+docs/             # 架构、平台、配置、数据库、评估、可观测性与开发文档
 ```
 
 ## 文档索引
 
 - [架构设计](docs/architecture.md)
+- [平台能力](docs/platform.md)
 - [可观测性](docs/observability.md)
 - [数据库与 Repository](docs/database.md)
 - [Evaluation](docs/evaluation.md)

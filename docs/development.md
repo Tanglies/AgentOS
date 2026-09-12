@@ -37,9 +37,11 @@ src/agentos/
 │   └── routes/       # 按资源拆分的路由模块
 ├── core/         # 与业务无关的配置、日志、上下文与异常
 ├── database/     # SQLite 连接、迁移、Repository 基座与持久化模型
+├── repositories/ # Agent / Run / Tool 规范仓储入口
 ├── evaluation/   # Metrics / Collector / Report
 ├── llm/          # 模型访问层（含 ToolSpec / ToolCall 协议模型）
-└── runtime/      # Agent 领域模型、持久化仓储与执行内核
+└── runtime/      # Agent 领域模型、服务层与执行内核
+    └── services/ # Agent 生命周期与 Dashboard 读模型
     ├── tools.py         # Tool 抽象、ToolRegistry、参数校验与执行
     ├── memory.py        # 会话短期记忆（MemoryStore / SessionState）
     ├── long_term_memory.py # 长期记忆（SQLite + 关键词召回）
@@ -92,6 +94,10 @@ docs/             # 架构、配置与开发文档
 | `tests/test_database.py` / `tests/test_database_package.py` / `tests/test_repository.py` | SQLite 连接、迁移账本、Repository 基座与兼容路径 |
 | `tests/test_evaluation.py` / `tests/test_evaluation_package.py` | 指标计算、Metric 扩展、采集器与报告格式 |
 | `tests/test_observability.py` / `tests/test_audit.py` | trace 上下文、审计记录与查询 |
+| `tests/test_agent_repository.py` / `tests/test_agent_api.py` | Agent 结构化持久化、生命周期 API、权限与数据库恢复 |
+| `tests/test_run_query_api.py` | Run 过滤、双分页、token_usage 与权限 |
+| `tests/test_dashboard_api.py` | Overview、工具统计、错误列表、Dashboard 权限 |
+| `tests/test_evaluation_api.py` | Evaluation 汇总、过滤、异常与权限 |
 
 ## 数据库迁移规范
 

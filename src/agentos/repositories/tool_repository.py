@@ -39,7 +39,7 @@ class ToolRepository(Repository):
             "SELECT COALESCE(NULLIF(target, ''), NULLIF(tool_name, ''), 'unknown') "
             "AS tool_name, COUNT(*) AS calls "
             f"FROM audit_logs {where} "
-            "GROUP BY tool_name ORDER BY calls DESC, tool_name ASC LIMIT ?",
+            "GROUP BY 1 ORDER BY calls DESC, 1 ASC LIMIT ?",
             (*params, limit),
         )
         return {str(row["tool_name"]): int(row["calls"]) for row in rows}

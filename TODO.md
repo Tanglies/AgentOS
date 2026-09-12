@@ -27,8 +27,11 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 
 ## 阶段 2：平台能力
 
-- [x] Agent 持久化（`SQLiteAgentRegistry`，**默认开启**；Repository 层重构完成）
-- [x] 运行记录持久化与历史查询（`RunStore` + `GET /api/v1/runs`，含过滤/分页/排序）
+- [x] Agent 持久化（`SQLiteAgentRegistry`，**默认开启**；结构化字段 + payload 兼容）
+- [x] Agent 生命周期管理（`AgentService`；创建、分页列表、详情、删除）
+- [x] Agent 管理 API（`GET/POST/DELETE /api/v1/agents`，支持 `page/page_size`）
+- [x] 运行记录持久化与历史查询（`RunStore` + `GET /api/v1/runs`，含过滤、双分页兼容、排序与 `token_usage`）
+- [x] Dashboard 只读接口（`overview` / `tools` / `errors`，数据复用 runs / audit / registry）
 - [x] Tool 管理（注册、分类、权限绑定）
   - [x] `Tool.required_permissions`：默认要求 `tool:execute`，Runtime 执行点强制校验
 - [~] 权限系统（身份认证、配额、工具访问控制）
@@ -43,7 +46,10 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
     - [ ] 数据归属：`session_id` / `memory_id` / `run_id` 绑定 owner，查询时强制过滤
   - [ ] 配额与限流：按用户统计调用量与速率
   - [ ] 更细的工具访问控制：按用户/角色限制可用工具
-- [ ] API 完善（分页、过滤、批量操作）
+- [~] API 完善（分页、过滤、批量操作）
+  - [x] Agent 管理 API：分页、过滤条件、完整详情
+  - [x] Run History：`page/page_size` 与旧 `limit/offset` 兼容
+  - [ ] 批量操作与通用游标分页
 - [ ] 数据模型与迁移机制
   - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）
   - [x] schema 版本表与增量迁移基础（`database/migrations/`，支持按版本幂等执行）
@@ -59,6 +65,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [ ] 审计防篡改与保留期策略
 - [ ] Evaluation：评测集与自动评分（基础指标包已拆分到 `evaluation/`）
   - [x] 基础指标：延迟分位、token 用量、成功率、工具调用（`GET /api/v1/evaluation/summary`）
+  - [x] 顶层平均值：`average_latency` / `average_tokens` / `average_tool_calls`
   - [ ] 评测集：构造用例集与期望输出
   - [ ] 自动评分：规则评分 + 裁判模型评分
 - [ ] 性能优化：并发、缓存（流式响应已完成，见阶段 1）

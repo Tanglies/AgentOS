@@ -67,11 +67,18 @@ db = DatabaseManager(
 | --- | --- | --- |
 | 连接 | `database/connection.py` | 连接、建表、迁移账本 |
 | 基座 | `database/repository.py` | `Repository`、参数化 `build_filter` |
-| 持久化模型 | `database/models.py` | `SchemaMigration`、`Pagination` |
+| 持久化模型 | `database/models.py` | `AgentRecord`、`SchemaMigration`、`Pagination` |
 | 业务仓储 | `runtime/repositories.py` | Agent / Run / Memory / Audit / API Key 的 SQL 与行转换 |
+| 规范入口 | `repositories/agent_repository.py` 等 | 为平台层提供稳定的 Repository 导入路径 |
+| 工具统计 | `repositories/tool_repository.py` | 从审计记录聚合工具调用与失败 |
 
 业务仓储不直接在 Store 里拼 SQL。`RunStore`、`LongTermMemory`、`SQLiteAgentRegistry` 等
 只保留业务语义，例如重名冲突、容量淘汰、检索词提取和运行状态转换。
+
+Agent 表采用结构化列（`id`、`name`、`description`、`system_prompt`、`model`、
+`temperature`、`max_iterations`、`tools`、`metadata`、`created_at`、`updated_at`）
+并保留 `payload` 作为旧版本兼容和回退字段。旧库首次打开时，`AgentRepository`
+会用 `PRAGMA table_info` 补列并从 `payload` 回填缺失字段。
 
 ## 兼容别名与命名
 
