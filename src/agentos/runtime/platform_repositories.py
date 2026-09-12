@@ -83,6 +83,15 @@ CREATE INDEX IF NOT EXISTS idx_workspace_tools_workspace
     ON workspace_tools (workspace_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tools_agent
     ON agent_tools (workspace_id, agent_id);
+CREATE TABLE IF NOT EXISTS workspace_quotas (
+    workspace_id INTEGER PRIMARY KEY,
+    daily_run_limit INTEGER NOT NULL,
+    daily_token_limit INTEGER NOT NULL,
+    requests_per_minute INTEGER NOT NULL,
+    max_iterations_per_run INTEGER NOT NULL,
+    max_tool_calls_per_run INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -495,6 +504,66 @@ class AgentToolRepository(Repository):
         return {str(row["tool_name"]): bool(row["enabled"]) for row in rows}
 
 
+class WorkspaceQuotaRecord(BaseModel):
+    """Tenant quota limits for one Workspace."""
+
+    workspace_id: int
+    daily_run_limit: int
+    daily_token_limit: int
+    requests_per_minute: int
+    max_iterations_per_run: int
+    max_tool_calls_per_run: int
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class WorkspaceQuotaRepository(Repository):
+    """SQL access for Workspace quotas."""
+
+    @staticmethod
+    def _to_record(row: Any) -> WorkspaceQuotaRecord:
+        return WorkspaceQuotaRecord(
+            workspace_id=int(row["workspace_id"]),
+            daily_run_limit=int(row["daily_run_limit"]),
+            daily_token_limit=int(row["daily_token_limit"]),
+            requests_per_minute=int(row["requests_per_minute"]),
+            max_iterations_per_run=int(row["max_iterations_per_run"]),
+            max_tool_calls_per_run=int(row["max_tool_calls_per_run"]),
+            updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        )
+
+    def get(self, workspace_id: int) -> WorkspaceQuotaRecord | None:
+        row = self._db.query_one(
+            "SELECT * FROM workspace_quotas WHERE workspace_id = ?",
+            (workspace_id,),
+        )
+        return self._to_record(row) if row is not None else None
+
+    def upsert(self, record: WorkspaceQuotaRecord) -> WorkspaceQuotaRecord:
+        self._db.execute(
+            "INSERT INTO workspace_quotas "
+            "(workspace_id, daily_run_limit, daily_token_limit, requests_per_minute, "
+            " max_iterations_per_run, max_tool_calls_per_run, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(workspace_id) DO UPDATE SET "
+            "daily_run_limit = excluded.daily_run_limit, "
+            "daily_token_limit = excluded.daily_token_limit, "
+            "requests_per_minute = excluded.requests_per_minute, "
+            "max_iterations_per_run = excluded.max_iterations_per_run, "
+            "max_tool_calls_per_run = excluded.max_tool_calls_per_run, "
+            "updated_at = excluded.updated_at",
+            (
+                record.workspace_id,
+                record.daily_run_limit,
+                record.daily_token_limit,
+                record.requests_per_minute,
+                record.max_iterations_per_run,
+                record.max_tool_calls_per_run,
+                record.updated_at.isoformat(),
+            ),
+        )
+        return record
+
+
 __all__ = [
     "AgentToolRecord",
     "AgentToolRepository",
@@ -502,6 +571,8 @@ __all__ = [
     "ToolMetadataRecord",
     "ToolMetadataRepository",
     "ToolRiskLevel",
+    "WorkspaceQuotaRecord",
+    "WorkspaceQuotaRepository",
     "UserRecord",
     "UserRepository",
     "UserStatus",

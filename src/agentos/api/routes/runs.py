@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from agentos.api.deps import RuntimeDep, SettingsDep, require
+from agentos.api.deps import RunServiceDep, RuntimeDep, SettingsDep, require
 from agentos.api.schemas import (
     RunDetail,
     RunListResponse,
@@ -52,10 +52,10 @@ def _format_error(code: str, message: str, status_code: int) -> str:
     dependencies=[require(Permission.RUN_CREATE)],
 )
 async def create_run(
-    payload: RunRequest, runtime: RuntimeDep, settings: SettingsDep
+    payload: RunRequest, service: RunServiceDep, settings: SettingsDep
 ) -> RunResponse:
     agent_name = payload.agent or settings.runtime.default_agent
-    result = await runtime.run(
+    result = await service.run(
         agent_name,
         payload.input,
         history=payload.history,
@@ -70,7 +70,7 @@ async def create_run(
     dependencies=[require(Permission.RUN_CREATE)],
 )
 async def create_run_stream(
-    payload: RunRequest, runtime: RuntimeDep, settings: SettingsDep
+    payload: RunRequest, service: RunServiceDep, settings: SettingsDep
 ) -> StreamingResponse:
     """以 Server-Sent Events 逐段推送运行过程。
 
@@ -81,7 +81,7 @@ async def create_run_stream(
     async def event_source() -> AsyncIterator[str]:
         emitted_error = False
         try:
-            async for event in runtime.run_stream(
+            async for event in service.run_stream(
                 agent_name,
                 payload.input,
                 history=payload.history,

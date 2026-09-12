@@ -698,9 +698,17 @@ class RunRepository(Repository):
         agent: str | None = None,
         session_id: str | None = None,
         since: datetime | None = None,
+        until: datetime | None = None,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
     ) -> RunAggregate:
-        """用 SQL 聚合出 Evaluation 需要的基础计数与合计。"""
-        where, params = self._where(agent=agent, session_id=session_id, since=since)
+        """? SQL ????? Workspace ?????????"""
+        where, params = self._where(
+            workspace_id=workspace_id,
+            agent=agent,
+            session_id=session_id,
+            since=since,
+            until=until,
+        )
         row = self._db.query_one(
             "SELECT "
             "  COUNT(*) AS runs,"
@@ -737,9 +745,17 @@ class RunRepository(Repository):
         agent: str | None = None,
         session_id: str | None = None,
         since: datetime | None = None,
+        until: datetime | None = None,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
     ) -> list[float]:
-        """返回全部运行耗时，供计算分位数。"""
-        where, params = self._where(agent=agent, session_id=session_id, since=since)
+        """???? Workspace ?????????????"""
+        where, params = self._where(
+            workspace_id=workspace_id,
+            agent=agent,
+            session_id=session_id,
+            since=since,
+            until=until,
+        )
         rows = self._db.query(f"SELECT duration_ms FROM runs {where}", params)
         return sorted(float(row["duration_ms"] or 0.0) for row in rows)
 
@@ -751,6 +767,7 @@ class RunRepository(Repository):
         session_id: str | None,
         status: RunStatus | None = None,
         since: datetime | None = None,
+        until: datetime | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
         clauses: list[tuple[str, Any]] = [
             ("workspace_id = ?", workspace_id),
@@ -758,6 +775,7 @@ class RunRepository(Repository):
             ("session_id = ?", session_id),
             ("status = ?", status.value if status else None),
             ("created_at >= ?", since.isoformat() if since else None),
+            ("created_at < ?", until.isoformat() if until else None),
         ]
         return _build_filter(clauses)
 

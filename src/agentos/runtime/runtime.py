@@ -192,6 +192,8 @@ class AgentRuntime:
         history: Sequence[Message] | None = None,
         session_id: str | None = None,
         stateless: bool = False,
+        max_iterations: int | None = None,
+        max_tool_calls: int | None = None,
     ) -> RunResult:
         """执行一次 Agent 运行并返回结构化结果。
 
@@ -205,6 +207,8 @@ class AgentRuntime:
             history=history,
             session_id=session_id,
             stateless=stateless,
+            max_iterations=max_iterations,
+            max_tool_calls=max_tool_calls,
         ):
             if event.type == "end":
                 result = event.result
@@ -221,6 +225,8 @@ class AgentRuntime:
         history: Sequence[Message] | None = None,
         session_id: str | None = None,
         stateless: bool = False,
+        max_iterations: int | None = None,
+        max_tool_calls: int | None = None,
     ) -> AsyncIterator[RunEvent]:
         """流式执行一次 Agent 运行，逐段产出 :class:`RunEvent`。
 
@@ -256,7 +262,11 @@ class AgentRuntime:
         # 计划按运行隔离：开始时清空，结束时随上下文一起还原
         plan_token = set_plan(None)
         started_at = time.perf_counter()
-        max_iterations = resolved.max_iterations or self._settings.max_iterations
+        max_iterations = (
+            max_iterations
+            or resolved.max_iterations
+            or self._settings.max_iterations
+        )
         messages = resolved.build_messages(input_text, history=history)
         base_prompt = resolved.system_prompt
         long_term_context = self._recall_long_term(input_text)
@@ -339,11 +349,23 @@ class AgentRuntime:
                 if not self._should_continue(response, messages):
                     break
 
-                for call in response.tool_calls or []:
+                pending_tool_calls = response.tool_calls or []
+                if (
+                    max_tool_calls is not None
+                    and tool_call_count + len(pending_tool_calls) > max_tool_calls
+                ):
+                    raise AgentRuntimeError(
+                        f"agent '{resolved.name}' exceeded max_tool_calls={max_tool_calls}",
+                        details={
+                            "agent": resolved.name,
+                            "max_tool_calls": max_tool_calls,
+                        },
+                    )
+                for call in pending_tool_calls:
                     yield RunEvent(type="tool_call", tool_call=call)
 
                 results = await self._run_tool_calls(
-                    response.tool_calls or [], resolved
+                    pending_tool_calls, resolved
                 )
                 tool_call_count += len(results)
                 for tool_result in results:

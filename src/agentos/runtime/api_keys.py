@@ -73,6 +73,9 @@ class Permission(StrEnum):
     USER_WRITE = "user:write"
     WORKSPACE_READ = "workspace:read"
     WORKSPACE_WRITE = "workspace:write"
+    QUOTA_READ = "quota:read"
+    QUOTA_WRITE = "quota:write"
+    USAGE_READ = "usage:read"
     API_KEY_ADMIN = "apikey:admin"
 
     #: 通配，拥有全部权限（静态配置密钥即属此类）
@@ -98,6 +101,9 @@ DEFAULT_PERMISSIONS: tuple[str, ...] = (
     Permission.USER_WRITE.value,
     Permission.WORKSPACE_READ.value,
     Permission.WORKSPACE_WRITE.value,
+    Permission.QUOTA_READ.value,
+    Permission.QUOTA_WRITE.value,
+    Permission.USAGE_READ.value,
 )
 
 

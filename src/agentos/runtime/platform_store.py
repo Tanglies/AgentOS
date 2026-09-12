@@ -23,6 +23,7 @@ from agentos.runtime.platform_repositories import (
     UserStatus,
     WorkspaceMemberRecord,
     WorkspaceMemberRepository,
+    WorkspaceQuotaRepository,
     WorkspaceRecord,
     WorkspaceRepository,
     WorkspaceRole,
@@ -46,6 +47,7 @@ class PlatformStore:
         self.tools = ToolMetadataRepository(self._db)
         self.workspace_tools = WorkspaceToolRepository(self._db)
         self.agent_tools = AgentToolRepository(self._db)
+        self.quotas = WorkspaceQuotaRepository(self._db)
         self._ensure_default_tenant()
 
     def _ensure_default_tenant(self) -> None:
@@ -104,5 +106,6 @@ __all__ = [
     "WorkspaceRecord",
     "WorkspaceRepository",
     "WorkspaceRole",
+    "WorkspaceQuotaRepository",
     "WorkspaceToolRepository",
 ]

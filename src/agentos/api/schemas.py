@@ -555,3 +555,36 @@ class ToolUpdateRequest(BaseModel):
     """Enable or disable a Tool for the current Workspace."""
 
     enabled: bool
+
+
+class QuotaSummary(BaseModel):
+    """Workspace quota limits."""
+
+    workspace_id: int
+    daily_run_limit: int
+    daily_token_limit: int
+    requests_per_minute: int
+    max_iterations_per_run: int
+    max_tool_calls_per_run: int
+    updated_at: datetime
+
+
+class QuotaUpdateRequest(BaseModel):
+    """Update Workspace quota limits."""
+
+    daily_run_limit: int | None = Field(default=None, ge=1)
+    daily_token_limit: int | None = Field(default=None, ge=1)
+    requests_per_minute: int | None = Field(default=None, ge=1)
+    max_iterations_per_run: int | None = Field(default=None, ge=1, le=64)
+    max_tool_calls_per_run: int | None = Field(default=None, ge=1, le=1000)
+
+
+class UsageResponse(BaseModel):
+    """Workspace usage aggregate."""
+
+    period: str
+    runs: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    tool_calls: int = 0

@@ -30,9 +30,11 @@ from agentos.api.routes import (
     evaluation,
     health,
     memories,
+    quota,
     runs,
     sessions,
     tools,
+    usage,
     users,
     workspaces,
 )
@@ -46,10 +48,13 @@ from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
 from agentos.runtime.platform_store import PlatformStore
+from agentos.runtime.rate_limit import InMemorySlidingWindowRateLimiter
 from agentos.runtime.run_store import RunStore
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.quota_service import QuotaService, RateLimitService, UsageService
+from agentos.runtime.services.run_service import RunService
 from agentos.runtime.services.tool_policy_service import ToolPolicyService
 from agentos.runtime.services.user_service import UserService
 from agentos.runtime.services.workspace_service import WorkspaceService
@@ -88,6 +93,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_policy.sync(tool_registry)
         run_store = RunStore(resolved.runs) if resolved.runs.enabled else None
         audit_log = AuditLog(resolved.audit) if resolved.audit.enabled else None
+        quota_service = QuotaService(
+            platform_store.quotas,
+            run_store.repository if run_store is not None else None,
+            resolved.quota,
+        )
+        usage_service = UsageService(quota_service)
+        rate_limit_service = RateLimitService(
+            quota_service, InMemorySlidingWindowRateLimiter()
+        )
         runtime = AgentRuntime(
             llm_client,
             settings=resolved.runtime,
@@ -101,11 +115,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             audit=audit_log,
             tool_policy=tool_policy,
         )
+        run_service = RunService(runtime, quota_service)
         app.state.llm_client = llm_client
         app.state.platform_store = platform_store
         app.state.user_service = user_service
         app.state.workspace_service = workspace_service
         app.state.tool_policy_service = tool_policy
+        app.state.quota_service = quota_service
+        app.state.usage_service = usage_service
+        app.state.rate_limit_service = rate_limit_service
+        app.state.run_service = run_service
         app.state.runtime = runtime
         app.state.audit_log = audit_log
         app.state.agent_service = AgentService(runtime.registry, audit=audit_log)
@@ -171,6 +190,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(agents.router, prefix=API_PREFIX)
+    app.include_router(quota.router, prefix=API_PREFIX)
+    app.include_router(usage.router, prefix=API_PREFIX)
     app.include_router(users.router, prefix=API_PREFIX)
     app.include_router(workspaces.router, prefix=API_PREFIX)
     app.include_router(apikeys.router, prefix=API_PREFIX)

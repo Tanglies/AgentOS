@@ -88,6 +88,16 @@ class PlatformSettings(BaseModel):
     db_path: str = ".agentos/platform.db"
 
 
+class QuotaSettings(BaseModel):
+    """Default Workspace quotas and per-request rate limits."""
+
+    daily_run_limit: int = Field(default=1000, ge=1)
+    daily_token_limit: int = Field(default=1_000_000, ge=1)
+    requests_per_minute: int = Field(default=60, ge=1)
+    max_iterations_per_run: int = Field(default=8, ge=1, le=64)
+    max_tool_calls_per_run: int = Field(default=10, ge=1, le=1000)
+
+
 class ApiKeySettings(BaseModel):
     """API Key 存储配置。
 
@@ -216,6 +226,7 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
     platform: PlatformSettings = Field(default_factory=PlatformSettings)
+    quota: QuotaSettings = Field(default_factory=QuotaSettings)
     runs: RunStoreSettings = Field(default_factory=RunStoreSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)
     api_keys: ApiKeySettings = Field(default_factory=ApiKeySettings)

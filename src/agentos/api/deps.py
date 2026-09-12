@@ -14,6 +14,8 @@ from agentos.runtime.api_keys import ApiKeyStore, Permission
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.quota_service import QuotaService, UsageService
+from agentos.runtime.services.run_service import RunService
 from agentos.runtime.services.tool_policy_service import ToolPolicyService
 from agentos.runtime.services.user_service import UserService
 from agentos.runtime.services.workspace_service import WorkspaceService
@@ -64,6 +66,30 @@ def get_workspace_service(request: Request) -> WorkspaceService:
             "workspace service is not initialized",
             details={"hint": "create the application through create_app lifespan"},
         )
+    return service
+
+
+def get_quota_service(request: Request) -> QuotaService:
+    """Return the Workspace quota service."""
+    service = getattr(request.app.state, "quota_service", None)
+    if service is None:
+        raise PermissionDeniedError("quota service is not initialized")
+    return service
+
+
+def get_usage_service(request: Request) -> UsageService:
+    """Return the Workspace usage service."""
+    service = getattr(request.app.state, "usage_service", None)
+    if service is None:
+        raise PermissionDeniedError("usage service is not initialized")
+    return service
+
+
+def get_run_service(request: Request) -> RunService:
+    """Return the quota-aware Run execution service."""
+    service = getattr(request.app.state, "run_service", None)
+    if service is None:
+        raise PermissionDeniedError("run service is not initialized")
     return service
 
 
@@ -118,6 +144,9 @@ def require(permission: Permission) -> Any:
                 "permission denied",
                 details={"required": permission.value},
             )
+        rate_limit_service = getattr(request.app.state, "rate_limit_service", None)
+        if rate_limit_service is not None:
+            rate_limit_service.check(identity.workspace_id, identity.name)
 
     return Depends(_check)
 
@@ -128,6 +157,9 @@ LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 DashboardServiceDep = Annotated[DashboardService, Depends(get_dashboard_service)]
 ToolPolicyServiceDep = Annotated[ToolPolicyService, Depends(get_tool_policy_service)]
+QuotaServiceDep = Annotated[QuotaService, Depends(get_quota_service)]
+UsageServiceDep = Annotated[UsageService, Depends(get_usage_service)]
+RunServiceDep = Annotated[RunService, Depends(get_run_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 WorkspaceServiceDep = Annotated[WorkspaceService, Depends(get_workspace_service)]
 ApiKeyStoreDep = Annotated[ApiKeyStore, Depends(get_api_key_store)]

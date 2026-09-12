@@ -6,6 +6,7 @@ from agentos.core.config import (
     AuthSettings,
     MemorySettings,
     PlatformSettings,
+    QuotaSettings,
     RegistrySettings,
     RunStoreSettings,
     Settings,
@@ -41,6 +42,8 @@ from agentos.core.exceptions import (
     LLMTimeoutError,
     NotFoundError,
     PermissionDeniedError,
+    QuotaExceededError,
+    RateLimitExceededError,
     ValidationError,
 )
 from agentos.core.logging import configure_logging, get_logger, redact
@@ -58,8 +61,11 @@ __all__ = [
     "LLMTimeoutError",
     "NotFoundError",
     "PermissionDeniedError",
+    "QuotaExceededError",
+    "RateLimitExceededError",
     "MemorySettings",
     "PlatformSettings",
+    "QuotaSettings",
     "RegistrySettings",
     "RunStoreSettings",
     "Settings",

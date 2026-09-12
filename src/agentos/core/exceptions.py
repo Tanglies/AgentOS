@@ -71,6 +71,22 @@ class PermissionDeniedError(AgentOSError):
     message = "permission denied"
 
 
+class QuotaExceededError(AgentOSError):
+    """Workspace quota has been exhausted."""
+
+    code = "quota_exceeded"
+    status_code = 429
+    message = "workspace quota exceeded"
+
+
+class RateLimitExceededError(AgentOSError):
+    """The caller exceeded the Workspace request rate."""
+
+    code = "rate_limit_exceeded"
+    status_code = 429
+    message = "rate limit exceeded"
+
+
 class LLMError(AgentOSError):
     """LLM 调用失败。"""
 
