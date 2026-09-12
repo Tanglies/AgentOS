@@ -11,7 +11,9 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from agentos.api.deps import RuntimeDep, require
+from agentos.core.context import get_workspace_id
 from agentos.core.exceptions import NotFoundError
+from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.evaluation import EvaluationSummary, Evaluator
 from agentos.runtime.api_keys import Permission
 
@@ -41,4 +43,8 @@ async def get_summary(
     since: Annotated[datetime | None, Query(description="只统计该时间之后")] = None,
 ) -> EvaluationSummary:
     """返回延迟、token、成功率与工具调用的聚合指标。"""
-    return _require_evaluator(runtime).summarize(agent=agent, since=since)
+    return _require_evaluator(runtime).summarize(
+        workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
+        agent=agent,
+        since=since,
+    )

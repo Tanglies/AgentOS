@@ -6,6 +6,7 @@ from agentos.core.context import get_workspace_id
 from agentos.core.exceptions import NotFoundError
 from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.runtime.agent import Agent
+from agentos.runtime.audit import ACTION_TOOL_DISABLE, ACTION_TOOL_ENABLE, AuditLog
 from agentos.runtime.platform_repositories import (
     AgentToolRepository,
     ToolMetadataRepository,
@@ -24,10 +25,13 @@ class ToolPolicyService:
         metadata: ToolMetadataRepository,
         workspace_tools: WorkspaceToolRepository,
         agent_tools: AgentToolRepository,
+        *,
+        audit: AuditLog | None = None,
     ) -> None:
         self._metadata = metadata
         self._workspace_tools = workspace_tools
         self._agent_tools = agent_tools
+        self._audit = audit
 
     @staticmethod
     def _scope(workspace_id: int | None = None) -> int:
@@ -54,9 +58,17 @@ class ToolPolicyService:
         """Enable or disable a Tool for one Workspace."""
         if tool_name not in registry:
             raise NotFoundError(f"tool not found: {tool_name}", details={"tool": tool_name})
-        return self._workspace_tools.set_enabled(
-            self._scope(workspace_id), tool_name, enabled=enabled
+        scope = self._scope(workspace_id)
+        record = self._workspace_tools.set_enabled(
+            scope, tool_name, enabled=enabled
         )
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_TOOL_ENABLE if enabled else ACTION_TOOL_DISABLE,
+                target=tool_name,
+                workspace_id=scope,
+            )
+        return record
 
     def _agent_id(self, registry: AgentRegistry, agent_name: str, workspace_id: int) -> int | None:
         repository = getattr(registry, "repository", None)
@@ -84,9 +96,16 @@ class ToolPolicyService:
             raise NotFoundError(
                 f"agent not found: {agent_name}", details={"agent": agent_name}
             )
-        return self._agent_tools.set_enabled(
+        record = self._agent_tools.set_enabled(
             scope, agent_id, tool_name, enabled=enabled
         )
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_TOOL_ENABLE if enabled else ACTION_TOOL_DISABLE,
+                target=f"{agent_name}:{tool_name}",
+                workspace_id=scope,
+            )
+        return record
 
     def list_workspace_tools(
         self,

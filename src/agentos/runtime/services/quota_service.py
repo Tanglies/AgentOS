@@ -8,6 +8,12 @@ from typing import Any
 from agentos.core.config import QuotaSettings
 from agentos.core.exceptions import QuotaExceededError, RateLimitExceededError
 from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
+from agentos.runtime.audit import (
+    ACTION_QUOTA_UPDATE,
+    ACTION_RATE_LIMIT_EXCEEDED,
+    AuditLog,
+    AuditStatus,
+)
 from agentos.runtime.platform_repositories import (
     WorkspaceQuotaRecord,
     WorkspaceQuotaRepository,
@@ -24,10 +30,13 @@ class QuotaService:
         quotas: WorkspaceQuotaRepository,
         runs: RunRepository | None,
         settings: QuotaSettings,
+        *,
+        audit: AuditLog | None = None,
     ) -> None:
         self._quotas = quotas
         self._runs = runs
         self._settings = settings
+        self._audit = audit
 
     def get_limits(self, workspace_id: int = DEFAULT_WORKSPACE_ID) -> WorkspaceQuotaRecord:
         """Return persisted limits or configured defaults."""
@@ -69,7 +78,14 @@ class QuotaService:
                 "updated_at": datetime.now(UTC),
             }
         )
-        return self._quotas.upsert(updated)
+        saved = self._quotas.upsert(updated)
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_QUOTA_UPDATE,
+                target=str(workspace_id),
+                workspace_id=workspace_id,
+            )
+        return saved
 
     def validate_run(self, workspace_id: int = DEFAULT_WORKSPACE_ID) -> WorkspaceQuotaRecord:
         """Reject a run when today's run or token limit is exhausted."""
@@ -160,15 +176,32 @@ class QuotaService:
 class RateLimitService:
     """Apply per-Workspace and per-API-key request rate limits."""
 
-    def __init__(self, quota: QuotaService, limiter: RateLimiter) -> None:
+    def __init__(
+        self,
+        quota: QuotaService,
+        limiter: RateLimiter,
+        *,
+        audit: AuditLog | None = None,
+    ) -> None:
         self._quota = quota
         self._limiter = limiter
+        self._audit = audit
 
-    def check(self, workspace_id: int, actor: str | None) -> None:
+    def check(
+        self, workspace_id: int, actor: str | None, *, user_id: int | None = None
+    ) -> None:
         """Raise ``RateLimitExceededError`` when the request is over limit."""
         limits = self._quota.get_limits(workspace_id)
         key = f"{workspace_id}:{actor or 'anonymous'}"
         if not self._limiter.allow(key, limit=limits.requests_per_minute):
+            if self._audit is not None:
+                self._audit.record(
+                    ACTION_RATE_LIMIT_EXCEEDED,
+                    status=AuditStatus.FAILURE,
+                    target=actor,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                )
             raise RateLimitExceededError(
                 "workspace request rate exceeded",
                 details={

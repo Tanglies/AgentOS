@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.database.repository import Repository, build_filter
 
@@ -26,11 +27,13 @@ class ToolRepository(Repository):
         self,
         *,
         since: datetime | None = None,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
         limit: int = 50,
     ) -> dict[str, int]:
         """Return call counts keyed by tool name, highest count first."""
         where, params = build_filter(
             [
+                ("workspace_id = ?", workspace_id),
                 ("action = ?", TOOL_EXECUTE_ACTION),
                 ("created_at >= ?", since.isoformat() if since else None),
             ]
@@ -44,14 +47,16 @@ class ToolRepository(Repository):
         )
         return {str(row["tool_name"]): int(row["calls"]) for row in rows}
 
-    def recent_failures(self, *, limit: int = 50) -> list[dict[str, Any]]:
+    def recent_failures(
+        self, *, workspace_id: int = DEFAULT_WORKSPACE_ID, limit: int = 50
+    ) -> list[dict[str, Any]]:
         """Return the most recent failed tool executions."""
         rows = self._db.query(
             "SELECT id, target, tool_name, run_id, detail, actor, created_at "
             "FROM audit_logs "
-            "WHERE action = ? AND status = ? "
+            "WHERE workspace_id = ? AND action = ? AND status = ? "
             "ORDER BY created_at DESC, id DESC LIMIT ?",
-            (TOOL_EXECUTE_ACTION, TOOL_FAILURE_STATUS, limit),
+            (workspace_id, TOOL_EXECUTE_ACTION, TOOL_FAILURE_STATUS, limit),
         )
         return [
             {

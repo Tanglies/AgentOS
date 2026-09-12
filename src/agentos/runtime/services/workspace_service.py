@@ -10,6 +10,14 @@ from agentos.core.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
+from agentos.runtime.audit import (
+    ACTION_WORKSPACE_CREATE,
+    ACTION_WORKSPACE_DELETE,
+    ACTION_WORKSPACE_MEMBER_ADD,
+    ACTION_WORKSPACE_MEMBER_REMOVE,
+    ACTION_WORKSPACE_UPDATE,
+    AuditLog,
+)
 from agentos.runtime.platform_repositories import (
     UserRepository,
     UserStatus,
@@ -33,10 +41,12 @@ class WorkspaceService:
         members: WorkspaceMemberRepository,
         *,
         users: UserRepository | UserService | None = None,
+        audit: AuditLog | None = None,
     ) -> None:
         self._workspaces = workspaces
         self._members = members
         self._users = users
+        self._audit = audit
 
     def _require_user(self, user_id: int) -> None:
         if self._users is None:
@@ -77,6 +87,13 @@ class WorkspaceService:
                 created_at=now,
             )
         )
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_WORKSPACE_CREATE,
+                target=str(workspace.id),
+                workspace_id=workspace.id,
+                user_id=owner_id,
+            )
         return workspace
 
     def list(self, user_id: int) -> list[WorkspaceRecord]:
@@ -107,6 +124,13 @@ class WorkspaceService:
         self._workspaces.update(
             workspace_id, name=cleaned, updated_at=datetime.now(UTC)
         )
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_WORKSPACE_UPDATE,
+                target=str(workspace_id),
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
         return self.get(workspace_id, user_id)
 
     def delete(self, workspace_id: int, user_id: int) -> None:
@@ -115,6 +139,13 @@ class WorkspaceService:
             raise PermissionDeniedError("workspace deletion requires owner role")
         if workspace_id == 1:
             raise PermissionDeniedError("default workspace cannot be deleted")
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_WORKSPACE_DELETE,
+                target=str(workspace_id),
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
         self._members.remove_workspace(workspace_id)
         self._workspaces.delete(workspace_id)
 
@@ -153,7 +184,7 @@ class WorkspaceService:
                 "user is already a workspace member",
                 details={"workspace_id": workspace_id, "user_id": member_user_id},
             )
-        return self._members.add(
+        record = self._members.add(
             WorkspaceMemberRecord(
                 workspace_id=workspace_id,
                 user_id=member_user_id,
@@ -161,6 +192,14 @@ class WorkspaceService:
                 created_at=datetime.now(UTC),
             )
         )
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_WORKSPACE_MEMBER_ADD,
+                target=str(member_user_id),
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+        return record
 
     def remove_member(self, workspace_id: int, user_id: int, *, member_user_id: int) -> None:
         actor = self._membership(workspace_id, user_id)
@@ -175,6 +214,13 @@ class WorkspaceService:
         if target.role == WorkspaceRole.OWNER:
             raise PermissionDeniedError("workspace owner cannot be removed")
         self._members.remove(workspace_id, member_user_id)
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_WORKSPACE_MEMBER_REMOVE,
+                target=str(member_user_id),
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
 
 
 __all__ = ["WorkspaceService"]

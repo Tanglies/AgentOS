@@ -146,7 +146,9 @@ def require(permission: Permission) -> Any:
             )
         rate_limit_service = getattr(request.app.state, "rate_limit_service", None)
         if rate_limit_service is not None:
-            rate_limit_service.check(identity.workspace_id, identity.name)
+            rate_limit_service.check(
+                identity.workspace_id, identity.name, user_id=identity.user_id
+            )
 
     return Depends(_check)
 

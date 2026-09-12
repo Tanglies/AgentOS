@@ -89,6 +89,8 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys (key_hash);
 AUDIT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER,
     action TEXT NOT NULL,
     status TEXT NOT NULL,
     target TEXT,
@@ -104,6 +106,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs (action);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs (actor);
 CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_logs (run_id);
+CREATE INDEX IF NOT EXISTS idx_audit_workspace_created
+    ON audit_logs (workspace_id, created_at DESC);
 """
 
 MEMORIES_SCHEMA = """
@@ -193,6 +197,8 @@ class AuditEntry(BaseModel):
     """
 
     id: int | None = None
+    workspace_id: int = DEFAULT_WORKSPACE_ID
+    user_id: int | None = None
     action: str
     status: AuditStatus = AuditStatus.SUCCESS
     target: str | None = None
@@ -1014,15 +1020,28 @@ class MemoryRepository(Repository):
 
 
 class AuditRepository(Repository):
-    """``audit_logs`` 表的数据访问。"""
+    """Workspace-scoped access to ``audit_logs``."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
+        self._db.ensure_columns(
+            "audit_logs",
+            {
+                "workspace_id": "INTEGER NOT NULL DEFAULT 1",
+                "user_id": "INTEGER",
+            },
+            backfill=(
+                "UPDATE audit_logs SET workspace_id = 1 WHERE workspace_id IS NULL; "
+                "UPDATE audit_logs SET user_id = 1 WHERE user_id IS NULL"
+            ),
+        )
 
     @staticmethod
     def _to_entry(row: Any) -> AuditEntry:
         return AuditEntry(
             id=int(row["id"]),
+            workspace_id=int(row["workspace_id"] or DEFAULT_WORKSPACE_ID),
+            user_id=int(row["user_id"]) if row["user_id"] is not None else None,
             action=str(row["action"]),
             status=AuditStatus(str(row["status"])),
             target=row["target"],
@@ -1039,10 +1058,12 @@ class AuditRepository(Repository):
         with self._db.connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO audit_logs "
-                "(action, status, target, actor, trace_id, run_id, "
-                " agent_name, tool_name, detail, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(workspace_id, user_id, action, status, target, actor, "
+                " trace_id, run_id, agent_name, tool_name, detail, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
+                    entry.workspace_id,
+                    entry.user_id,
                     entry.action,
                     entry.status.value,
                     entry.target,
@@ -1061,6 +1082,7 @@ class AuditRepository(Repository):
     def list(
         self,
         *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
         action: str | None = None,
         actor: str | None = None,
         run_id: str | None = None,
@@ -1071,6 +1093,7 @@ class AuditRepository(Repository):
     ) -> list[AuditEntry]:
         where, params = _build_filter(
             [
+                ("workspace_id = ?", workspace_id),
                 ("action = ?", action),
                 ("actor = ?", actor),
                 ("run_id = ?", run_id),
@@ -1088,6 +1111,7 @@ class AuditRepository(Repository):
     def count(
         self,
         *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
         action: str | None = None,
         actor: str | None = None,
         run_id: str | None = None,
@@ -1095,6 +1119,7 @@ class AuditRepository(Repository):
     ) -> int:
         where, params = _build_filter(
             [
+                ("workspace_id = ?", workspace_id),
                 ("action = ?", action),
                 ("actor = ?", actor),
                 ("run_id = ?", run_id),
@@ -1104,17 +1129,30 @@ class AuditRepository(Repository):
         row = self._db.query_one(f"SELECT COUNT(*) AS total FROM audit_logs {where}", params)
         return int(row["total"]) if row is not None else 0
 
-    def prune(self, keep: int) -> int:
-        """只保留最近 ``keep`` 条，返回删除条数。"""
+    def prune(self, keep: int, *, workspace_id: int | None = None) -> int:
+        """只保留当前 Workspace 最近 ``keep`` 条。"""
+        if workspace_id is None:
+            return self._db.execute(
+                "DELETE FROM audit_logs WHERE id IN ("
+                "  SELECT id FROM audit_logs ORDER BY created_at DESC, id DESC "
+                "  LIMIT -1 OFFSET ?"
+                ")",
+                (keep,),
+            )
         return self._db.execute(
-            "DELETE FROM audit_logs WHERE id IN ("
-            "  SELECT id FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?"
+            "DELETE FROM audit_logs WHERE workspace_id = ? AND id IN ("
+            "  SELECT id FROM audit_logs WHERE workspace_id = ? "
+            "  ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?"
             ")",
-            (keep,),
+            (workspace_id, workspace_id, keep),
         )
 
-    def clear(self) -> int:
-        return self._db.execute("DELETE FROM audit_logs")
+    def clear(self, *, workspace_id: int | None = None) -> int:
+        if workspace_id is None:
+            return self._db.execute("DELETE FROM audit_logs")
+        return self._db.execute(
+            "DELETE FROM audit_logs WHERE workspace_id = ?", (workspace_id,)
+        )
 
 
 class ApiKeyRepository(Repository):

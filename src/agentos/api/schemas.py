@@ -588,3 +588,20 @@ class UsageResponse(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     tool_calls: int = 0
+
+
+class DashboardUsageSection(BaseModel):
+    """Used and limit values for one quota resource."""
+
+    used: int = 0
+    limit: int = 0
+
+
+class DashboardUsageResponse(BaseModel):
+    """Today's Workspace quota usage."""
+
+    runs: DashboardUsageSection
+    tokens: DashboardUsageSection
+    requests_per_minute: int = 0
+    max_iterations_per_run: int = 0
+    max_tool_calls_per_run: int = 0

@@ -5,7 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from agentos.api.deps import DashboardServiceDep, require
-from agentos.api.schemas import DashboardErrorItem, DashboardOverviewResponse
+from agentos.api.schemas import (
+    DashboardErrorItem,
+    DashboardOverviewResponse,
+    DashboardUsageResponse,
+)
+from agentos.core.context import get_workspace_id
+from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.runtime.api_keys import Permission
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -19,7 +25,9 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 )
 async def dashboard_overview(service: DashboardServiceDep) -> DashboardOverviewResponse:
     """返回运行数、成功率、平均延迟、token 与活跃 Agent 数。"""
-    return DashboardOverviewResponse(**service.overview())
+    return DashboardOverviewResponse(
+        **service.overview(workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID)
+    )
 
 
 @router.get(
@@ -33,7 +41,24 @@ async def dashboard_tools(
     limit: int = Query(default=50, ge=1, le=500),
 ) -> dict[str, int]:
     """按工具名返回审计记录中的调用次数。"""
-    return service.tools(limit=limit)
+    return service.tools(
+        workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID, limit=limit
+    )
+
+
+
+
+@router.get(
+    "/usage",
+    response_model=DashboardUsageResponse,
+    summary="Dashboard 配额使用量",
+    dependencies=[require(Permission.USAGE_READ)],
+)
+async def dashboard_usage(service: DashboardServiceDep) -> DashboardUsageResponse:
+    """返回今日 Runs、Tokens 及 Workspace 配额。"""
+    return DashboardUsageResponse(
+        **service.usage(workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID)
+    )
 
 
 @router.get(
@@ -47,4 +72,9 @@ async def dashboard_errors(
     limit: int = Query(default=50, ge=1, le=500),
 ) -> list[DashboardErrorItem]:
     """返回最近失败的运行记录。"""
-    return [DashboardErrorItem(**item) for item in service.errors(limit=limit)]
+    return [
+        DashboardErrorItem(**item)
+        for item in service.errors(
+            workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID, limit=limit
+        )
+    ]

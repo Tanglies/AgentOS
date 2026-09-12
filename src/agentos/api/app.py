@@ -74,10 +74,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         platform_store = PlatformStore(resolved.platform)
         user_service = UserService(platform_store.users)
+        audit_log = AuditLog(resolved.audit) if resolved.audit.enabled else None
         workspace_service = WorkspaceService(
             platform_store.workspaces,
             platform_store.members,
             users=user_service,
+            audit=audit_log,
         )
         llm_client = create_llm_client(resolved.llm)
         memory = MemoryStore(resolved.memory)
@@ -89,18 +91,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             platform_store.tools,
             platform_store.workspace_tools,
             platform_store.agent_tools,
+            audit=audit_log,
         )
         tool_policy.sync(tool_registry)
         run_store = RunStore(resolved.runs) if resolved.runs.enabled else None
-        audit_log = AuditLog(resolved.audit) if resolved.audit.enabled else None
         quota_service = QuotaService(
             platform_store.quotas,
             run_store.repository if run_store is not None else None,
             resolved.quota,
+            audit=audit_log,
         )
         usage_service = UsageService(quota_service)
         rate_limit_service = RateLimitService(
-            quota_service, InMemorySlidingWindowRateLimiter()
+            quota_service,
+            InMemorySlidingWindowRateLimiter(),
+            audit=audit_log,
         )
         runtime = AgentRuntime(
             llm_client,
@@ -132,6 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             runtime.registry,
             runs=run_store,
             audit=audit_log,
+            quota=quota_service,
         )
         app.state.api_key_store = api_key_store
         logger.info(
