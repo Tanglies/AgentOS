@@ -57,6 +57,19 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 | `AGENTOS_RUNTIME__MAX_ITERATIONS` | `8` | 单次运行的最大迭代轮数（1-64），超出抛 `AgentRuntimeError` |
 | `AGENTOS_RUNTIME__SYSTEM_PROMPT` | `You are AgentOS, a helpful AI agent.` | 默认助手的系统提示词 |
 
+### 运行记录（`runs`）
+
+记录每次 Agent 运行的输入、输出、token 用量与消息轨迹，支持历史查询。
+**默认开启** —— 运行历史是排查问题的主要依据，不落盘就没有意义。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_RUNS__ENABLED` | `true` | 是否记录运行历史 |
+| `AGENTOS_RUNS__DB_PATH` | `.agentos/runs.db` | SQLite 文件路径（已 gitignore） |
+| `AGENTOS_RUNS__MAX_RECORDS` | `10000` | 保留最近 N 条，超出淘汰最旧的（1-100万） |
+
+成功与**失败**都会记录：失败的运行同样需要留痕，否则排查时只能翻日志。
+
 ### Agent 注册表（`registry`）
 
 默认使用**内存**注册表，进程重启后 Agent 定义会丢失。

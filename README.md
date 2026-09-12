@@ -11,6 +11,7 @@
 | HTTP 服务 | FastAPI 应用、统一错误响应、请求 ID、健康探针、OpenAPI 文档 | ✅ v0.1 |
 | 认证 | API Key 中间件（默认关闭、失败关闭、常量时间比较） | ✅ v0.1 |
 | Agent 持久化 | 可选 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
+| 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页 | ✅ v0.1 |
 | Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
@@ -317,6 +318,8 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | DELETE | `/api/v1/agents/{name}` | 注销 Agent |
 | POST | `/api/v1/runs` | 执行一次 Agent 运行 |
 | POST | `/api/v1/runs/stream` | 流式执行（SSE，逐段推送） |
+| GET | `/api/v1/runs` | 查询运行历史（支持过滤与分页） |
+| GET | `/api/v1/runs/{run_id}` | 查看单次运行详情（含消息轨迹） |
 | GET | `/api/v1/tools` | 列出服务端已注册的工具 |
 | GET | `/api/v1/memories` | 列出长期记忆 |
 | POST | `/api/v1/memories` | 写入一条长期记忆 |

@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from agentos.api.deps import RuntimeDep, SettingsDep
-from agentos.api.schemas import RunRequest, RunResponse
-from agentos.core.exceptions import AgentOSError
+from agentos.api.schemas import (
+    RunDetail,
+    RunListResponse,
+    RunRequest,
+    RunResponse,
+    RunSummary,
+)
+from agentos.core.exceptions import AgentOSError, NotFoundError
+from agentos.runtime.run_store import RunStatus
 from agentos.runtime.runtime import RunEvent
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -83,3 +91,43 @@ async def create_run_stream(
     return StreamingResponse(
         event_source(), media_type=SSE_MEDIA_TYPE, headers=SSE_HEADERS
     )
+
+
+def _require_run_store(runtime: RuntimeDep) -> object:
+    """运行记录被关闭时给出明确错误，而不是静默返回空列表。"""
+    store = runtime.runs
+    if store is None:
+        raise NotFoundError(
+            "run history is disabled",
+            details={"hint": "set AGENTOS_RUNS__ENABLED=true"},
+        )
+    return store
+
+
+@router.get("", response_model=RunListResponse, summary="查询运行历史")
+async def list_runs(
+    runtime: RuntimeDep,
+    agent: str | None = Query(default=None, description="按 Agent 名过滤"),
+    session_id: str | None = Query(default=None, description="按会话过滤"),
+    status: Annotated[RunStatus | None, Query(description="按状态过滤")] = None,
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> RunListResponse:
+    """按时间倒序返回运行记录（不含消息列表）。"""
+    store = _require_run_store(runtime)
+    records = store.list(  # type: ignore[attr-defined]
+        agent=agent, session_id=session_id, status=status, limit=limit, offset=offset
+    )
+    return RunListResponse(
+        items=[RunSummary.from_record(record) for record in records],
+        total=store.count(agent=agent, session_id=session_id, status=status),  # type: ignore[attr-defined]
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/{run_id}", response_model=RunDetail, summary="查看运行详情")
+async def get_run(run_id: str, runtime: RuntimeDep) -> RunDetail:
+    """返回单次运行的完整记录，含消息轨迹与 token 明细。"""
+    store = _require_run_store(runtime)
+    return RunDetail.from_record(store.get(run_id))  # type: ignore[attr-defined]

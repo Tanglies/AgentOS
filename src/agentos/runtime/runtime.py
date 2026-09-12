@@ -48,6 +48,7 @@ from agentos.runtime.planning import (
     set_plan,
 )
 from agentos.runtime.registry import AgentRegistry, build_registry
+from agentos.runtime.run_store import RunStore
 from agentos.runtime.tools import ToolCallResult, ToolRegistry
 
 logger = get_logger(__name__)
@@ -105,6 +106,7 @@ class AgentRuntime:
         tools: ToolRegistry | None = None,
         memory: MemoryStore | None = None,
         long_term: LongTermMemory | None = None,
+        runs: RunStore | None = None,
         registry_db_path: str | None = None,
         enable_delegation: bool = True,
         max_delegation_depth: int = DEFAULT_MAX_DEPTH,
@@ -114,6 +116,7 @@ class AgentRuntime:
         self._tools = tools if tools is not None else create_default_tool_registry()
         self._memory = memory if memory is not None else MemoryStore()
         self._long_term = long_term
+        self._runs = runs
 
         # 委托工具需要引用 Runtime 自身，只能在实例化过程中注册
         if enable_delegation:
@@ -152,6 +155,10 @@ class AgentRuntime:
     @property
     def long_term(self) -> LongTermMemory | None:
         return self._long_term
+
+    @property
+    def runs(self) -> RunStore | None:
+        return self._runs
 
     @property
     def settings(self) -> RuntimeSettings:
@@ -359,6 +366,9 @@ class AgentRuntime:
             )
             if resolved_session:
                 self._memory.append(resolved_session, messages[new_turn_start:])
+
+            if self._runs is not None:
+                self._runs.record(result, input_text=input_text)
                 logger.debug(
                     "session memory updated",
                     extra={
@@ -386,6 +396,15 @@ class AgentRuntime:
             logger.exception(
                 "agent run failed", extra={"extra_fields": {"agent": resolved.name}}
             )
+            if self._runs is not None:
+                self._runs.record_failure(
+                    run_id=run_id,
+                    agent=resolved.name,
+                    input_text=input_text,
+                    error=str(exc),
+                    session_id=resolved_session,
+                    duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                )
             yield RunEvent(type="error", run_id=run_id, error=str(exc))
             raise
         finally:

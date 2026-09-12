@@ -16,6 +16,15 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **运行记录持久化与历史查询**：解决「跑完就查不到」
+  - `runtime/run_store.py`：`RunStore` / `RunRecord`，落盘 SQLite
+  - 结构化字段（agent / session_id / status / created_at / tokens）建列用于过滤排序，
+    完整结果序列化进 `payload` 列，避免给 `RunResult` 加字段就改表
+  - **成功与失败都记录** —— 失败的运行同样需要留痕
+  - 容量上限 `max_records`（默认 10000），超出按时间淘汰最旧的
+  - Runtime 在 `run_stream` 成功/异常分支分别写入，两种运行方式都能覆盖
+  - API：新增 `GET /api/v1/runs`（分页 + agent/session/status 过滤）
+    与 `GET /api/v1/runs/{run_id}`（含完整消息轨迹）
 - **Swagger UI 支持 API Key 认证**：浏览器里也能验证接口
   - 认证是中间件实现的，路由上没有声明依赖，FastAPI 不会自动生成
     `securitySchemes`，Swagger UI 也就没有地方填 Key，点任何接口都只能拿到 401
@@ -153,6 +162,9 @@
 - 测试增至 337 个用例，新增 `tests/test_responses.py`（10 个）
 - 安全方案的注入用包装 `app.openapi` 实现，保持幂等；OpenAPI 本身仍走 charset 中间件
 - 测试增至 342 个用例，`tests/test_auth.py` 补充 5 个 Swagger 相关用例
+- `RunStore` 与 `RunResult` 之间用 `TYPE_CHECKING` 隔离，避免 run_store 与 runtime 循环导入
+- 列表接口不返回消息列表，避免历史查询把上下文撑爆；详情接口才带完整轨迹
+- 测试增至 364 个用例，新增 `tests/test_run_store.py`（22 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

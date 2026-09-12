@@ -30,6 +30,7 @@ from agentos.llm.factory import create_llm_client
 from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
+from agentos.runtime.run_store import RunStore
 from agentos.runtime.runtime import AgentRuntime
 
 logger = get_logger(__name__)
@@ -51,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             LongTermMemory(resolved.memory) if resolved.memory.long_term_enabled else None
         )
         tool_registry = create_default_tool_registry(resolved.tools, long_term=long_term)
+        run_store = RunStore(resolved.runs) if resolved.runs.enabled else None
         runtime = AgentRuntime(
             llm_client,
             settings=resolved.runtime,
@@ -60,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             memory=memory,
             long_term=long_term,
+            runs=run_store,
         )
         app.state.llm_client = llm_client
         app.state.runtime = runtime

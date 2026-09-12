@@ -82,6 +82,19 @@ class RegistrySettings(BaseModel):
     db_path: str = ".agentos/agents.db"
 
 
+class RunStoreSettings(BaseModel):
+    """运行记录持久化配置。
+
+    默认开启：运行历史是排查问题的主要依据，落盘才有意义。
+    数据库位于 ``.agentos/``，已被 ``.gitignore`` 忽略。
+    记录保留最近 ``max_records`` 条，超出后淘汰最旧的。
+    """
+
+    enabled: bool = True
+    db_path: str = ".agentos/runs.db"
+    max_records: int = Field(default=10_000, ge=1, le=1_000_000)
+
+
 class AuthSettings(BaseModel):
     """API 认证配置。
 
@@ -172,6 +185,7 @@ class Settings(BaseSettings):
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     api: APISettings = Field(default_factory=APISettings)
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
+    runs: RunStoreSettings = Field(default_factory=RunStoreSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)

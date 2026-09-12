@@ -13,6 +13,7 @@ from agentos.runtime.long_term_memory import MemoryRecord
 from agentos.runtime.memory import SessionState
 from agentos.runtime.message import Message
 from agentos.runtime.planning import ExecutionPlan
+from agentos.runtime.run_store import RunRecord
 from agentos.runtime.runtime import RunResult
 from agentos.runtime.tools import Tool
 
@@ -101,6 +102,68 @@ class AgentListResponse(BaseModel):
 
     items: list[AgentSummary]
     total: int
+
+
+class RunSummary(BaseModel):
+    """运行记录摘要（不含消息列表，用于列表接口）。"""
+
+    run_id: str
+    agent: str
+    session_id: str | None = None
+    status: str = "completed"
+    input: str = ""
+    output: str = ""
+    error: str | None = None
+    iterations: int = 0
+    duration_ms: float = 0.0
+    tool_call_count: int = 0
+    finish_reason: str | None = None
+    total_tokens: int = 0
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: RunRecord) -> RunSummary:
+        return cls(
+            run_id=record.run_id,
+            agent=record.agent,
+            session_id=record.session_id,
+            status=record.status.value,
+            input=record.input,
+            output=record.output,
+            error=record.error,
+            iterations=record.iterations,
+            duration_ms=record.duration_ms,
+            tool_call_count=record.tool_call_count,
+            finish_reason=record.finish_reason,
+            total_tokens=record.total_tokens,
+            created_at=record.created_at,
+        )
+
+
+class RunDetail(RunSummary):
+    """运行记录详情（含完整消息轨迹）。"""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    messages: list[Message] = Field(default_factory=list)
+
+    @classmethod
+    def from_record(cls, record: RunRecord) -> RunDetail:
+        return cls(
+            **RunSummary.from_record(record).model_dump(),
+            prompt_tokens=record.prompt_tokens,
+            completion_tokens=record.completion_tokens,
+            messages=list(record.messages),
+        )
+
+
+class RunListResponse(BaseModel):
+    """运行历史列表响应。"""
+
+    items: list[RunSummary]
+    total: int
+    limit: int
+    offset: int
 
 
 class MemorySummary(BaseModel):
