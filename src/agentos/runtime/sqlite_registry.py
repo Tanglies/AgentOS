@@ -35,6 +35,11 @@ class SQLiteAgentRegistry:
         for agent in agents or ():
             self.register(agent)
 
+    @property
+    def repository(self) -> AgentRepository:
+        """Expose the persistence repository for platform services."""
+        return self._repo
+
     def register(self, agent: Agent, *, overwrite: bool = False) -> Agent:
         """注册 Agent；重名时默认抛 :class:`ConflictError`。"""
         if self._repo.exists(agent.name):

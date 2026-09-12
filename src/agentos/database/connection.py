@@ -59,6 +59,43 @@ class Database:
         finally:
             conn.close()
 
+    def initialize(self) -> None:
+        """Initialize the database and ensure the configured schema exists."""
+        with self.connect():
+            pass
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Open a transaction scope for an atomic multi-statement operation."""
+        with self.connect() as connection, connection:
+            yield connection
+
+    def ensure_columns(
+        self,
+        table: str,
+        columns: dict[str, str],
+        *,
+        backfill: str | None = None,
+    ) -> None:
+        """Add missing columns to an existing SQLite table.
+
+        SQLite does not support ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``.
+        This helper keeps the new canonical schema compatible with databases
+        created by earlier AgentOS versions.
+        """
+        with self.connect() as connection:
+            existing = {
+                str(row["name"])
+                for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for name, definition in columns.items():
+                if name not in existing:
+                    connection.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
+                    )
+            if backfill:
+                connection.execute(backfill)
+
     def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
         """Execute a write statement and return the affected row count."""
         with self.connect() as conn:

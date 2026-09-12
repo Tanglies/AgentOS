@@ -22,6 +22,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agentos.database.connection import Database
+from agentos.database.models import AgentRecord
 from agentos.database.repository import Repository
 from agentos.database.repository import build_filter as _build_filter
 from agentos.runtime.agent import Agent
@@ -29,11 +30,20 @@ from agentos.runtime.message import Message
 
 AGENTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
-    name TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT,
+    model TEXT,
+    temperature REAL,
+    max_iterations INTEGER,
+    tools TEXT NOT NULL DEFAULT '[]',
+    metadata TEXT NOT NULL DEFAULT '{}',
     payload TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_agents_name ON agents (name);
 """
 
 RUNS_SCHEMA = """
@@ -222,34 +232,226 @@ class RunAggregate(BaseModel):
 class AgentRepository(Repository):
     """``agents`` 表的数据访问。"""
 
+    _LEGACY_COLUMNS = {
+        "id": "INTEGER",
+        "description": "TEXT NOT NULL DEFAULT ''",
+        "system_prompt": "TEXT",
+        "model": "TEXT",
+        "temperature": "REAL",
+        "max_iterations": "INTEGER",
+        "tools": "TEXT NOT NULL DEFAULT '[]'",
+        "metadata": "TEXT NOT NULL DEFAULT '{}'",
+    }
+
     def __init__(self, database: Database) -> None:
         self._db = database
+        self._ensure_columns()
+
+    def _ensure_columns(self) -> None:
+        """Upgrade pre-structured Agent tables without breaking old rows."""
+        self._db.ensure_columns(
+            "agents",
+            self._LEGACY_COLUMNS,
+            backfill="UPDATE agents SET id = rowid WHERE id IS NULL",
+        )
+        self._backfill_legacy_payload()
+
+    def _backfill_legacy_payload(self) -> None:
+        """Populate new columns from the legacy JSON payload when needed."""
+        with self._db.connect() as conn:
+            rows = conn.execute(
+                "SELECT name, payload, description, system_prompt, model, "
+                "temperature, max_iterations, tools, metadata FROM agents"
+            ).fetchall()
+            for row in rows:
+                payload = self._payload(row)
+                updates: dict[str, Any] = {}
+                if not row["description"] and payload.get("description"):
+                    updates["description"] = payload["description"]
+                for field in (
+                    "system_prompt",
+                    "model",
+                    "temperature",
+                    "max_iterations",
+                ):
+                    if row[field] is None and payload.get(field) is not None:
+                        updates[field] = payload[field]
+                if (
+                    (not row["tools"] or row["tools"] == "[]")
+                    and payload.get("tools")
+                ):
+                    updates["tools"] = json.dumps(
+                        payload["tools"], ensure_ascii=False
+                    )
+                if (
+                    (not row["metadata"] or row["metadata"] == "{}")
+                    and payload.get("metadata")
+                ):
+                    updates["metadata"] = json.dumps(
+                        payload["metadata"], ensure_ascii=False
+                    )
+                if not updates:
+                    continue
+                assignments = ", ".join(f"{column} = ?" for column in updates)
+                conn.execute(
+                    f"UPDATE agents SET {assignments} WHERE name = ?",
+                    (*updates.values(), row["name"]),
+                )
 
     @staticmethod
-    def _decode(payload: str) -> Agent:
-        return Agent.model_validate(json.loads(payload))
+    def _payload(row: Any) -> dict[str, Any]:
+        raw = row["payload"]
+        try:
+            value = json.loads(str(raw)) if raw else {}
+        except (TypeError, ValueError):
+            value = {}
+        return value if isinstance(value, dict) else {}
 
-    def add(self, agent: Agent, *, created_at: datetime) -> None:
-        """插入一条新记录（主键冲突由调用方负责检查）。"""
-        stamp = created_at.isoformat()
-        self._db.execute(
-            "INSERT INTO agents (name, payload, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (agent.name, agent.model_dump_json(), stamp, stamp),
+    def _decode(self, row: Any) -> Agent:
+        """Decode structured columns with JSON payload as a compatibility fallback."""
+        payload = self._payload(row)
+        return Agent(
+            name=str(row["name"]),
+            description=str(row["description"] or payload.get("description") or ""),
+            system_prompt=(
+                row["system_prompt"]
+                if row["system_prompt"] is not None
+                else payload.get("system_prompt")
+            ),
+            model=row["model"] if row["model"] is not None else payload.get("model"),
+            temperature=(
+                row["temperature"]
+                if row["temperature"] is not None
+                else payload.get("temperature")
+            ),
+            max_iterations=(
+                row["max_iterations"]
+                if row["max_iterations"] is not None
+                else payload.get("max_iterations")
+            ),
+            tools=(
+                json.loads(str(row["tools"] or "[]"))
+                if row["tools"]
+                else payload.get("tools", [])
+            ),
+            metadata=(
+                json.loads(str(row["metadata"] or "{}"))
+                if row["metadata"]
+                else payload.get("metadata", {})
+            ),
         )
 
-    def replace(self, agent: Agent, *, updated_at: datetime) -> None:
-        """按名称覆盖已有记录。"""
+    def _to_record(self, row: Any) -> AgentRecord:
+        agent = self._decode(row)
+        return AgentRecord(
+            id=int(row["id"]) if row["id"] is not None else None,
+            name=agent.name,
+            description=agent.description,
+            system_prompt=agent.system_prompt,
+            model=agent.model,
+            temperature=agent.temperature,
+            max_iterations=agent.max_iterations,
+            tools=list(agent.tools),
+            metadata=dict(agent.metadata),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+            updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        )
+
+    @staticmethod
+    def _values(agent: Agent, *, created_at: datetime, updated_at: datetime) -> tuple[Any, ...]:
+        return (
+            agent.name,
+            agent.description,
+            agent.system_prompt,
+            agent.model,
+            agent.temperature,
+            agent.max_iterations,
+            json.dumps(agent.tools, ensure_ascii=False),
+            json.dumps(agent.metadata, ensure_ascii=False),
+            agent.model_dump_json(),
+            created_at.isoformat(),
+            updated_at.isoformat(),
+        )
+
+    def add(self, agent: Agent, *, created_at: datetime) -> AgentRecord:
+        """Insert an Agent and return its persisted lifecycle record."""
+        values = self._values(agent, created_at=created_at, updated_at=created_at)
+        with self._db.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO agents "
+                "(name, description, system_prompt, model, temperature, max_iterations, "
+                " tools, metadata, payload, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                values,
+            )
+            record_id = int(cursor.lastrowid or 0)
+            conn.execute(
+                "UPDATE agents SET id = ? WHERE name = ?",
+                (record_id, agent.name),
+            )
+        return AgentRecord(
+            id=record_id,
+            name=agent.name,
+            description=agent.description,
+            system_prompt=agent.system_prompt,
+            model=agent.model,
+            temperature=agent.temperature,
+            max_iterations=agent.max_iterations,
+            tools=list(agent.tools),
+            metadata=dict(agent.metadata),
+            created_at=created_at,
+            updated_at=created_at,
+        )
+
+    def replace(self, agent: Agent, *, updated_at: datetime) -> AgentRecord:
+        """Replace an existing Agent while preserving its id and created_at."""
+        existing = self.get_record(agent.name)
+        if existing is None:
+            return self.add(agent, created_at=updated_at)
         self._db.execute(
-            "UPDATE agents SET payload = ?, updated_at = ? WHERE name = ?",
-            (agent.model_dump_json(), updated_at.isoformat(), agent.name),
+            "UPDATE agents SET "
+            "description = ?, system_prompt = ?, model = ?, temperature = ?, "
+            "max_iterations = ?, tools = ?, metadata = ?, payload = ?, updated_at = ? "
+            "WHERE name = ?",
+            (
+                agent.description,
+                agent.system_prompt,
+                agent.model,
+                agent.temperature,
+                agent.max_iterations,
+                json.dumps(agent.tools, ensure_ascii=False),
+                json.dumps(agent.metadata, ensure_ascii=False),
+                agent.model_dump_json(),
+                updated_at.isoformat(),
+                agent.name,
+            ),
+        )
+        return existing.model_copy(
+            update={
+                "description": agent.description,
+                "system_prompt": agent.system_prompt,
+                "model": agent.model,
+                "temperature": agent.temperature,
+                "max_iterations": agent.max_iterations,
+                "tools": list(agent.tools),
+                "metadata": dict(agent.metadata),
+                "updated_at": updated_at,
+            }
         )
 
     def remove(self, name: str) -> bool:
         return self._db.execute("DELETE FROM agents WHERE name = ?", (name,)) > 0
 
+    def get_record(self, name: str) -> AgentRecord | None:
+        row = self._db.query_one("SELECT * FROM agents WHERE name = ?", (name,))
+        return self._to_record(row) if row is not None else None
+
     def get(self, name: str) -> Agent | None:
-        row = self._db.query_one("SELECT payload FROM agents WHERE name = ?", (name,))
-        return self._decode(str(row["payload"])) if row is not None else None
+        return self._repo_agent(name)
+
+    def _repo_agent(self, name: str) -> Agent | None:
+        row = self._db.query_one("SELECT * FROM agents WHERE name = ?", (name,))
+        return self._decode(row) if row is not None else None
 
     def exists(self, name: str) -> bool:
         return self._db.query_one("SELECT 1 FROM agents WHERE name = ?", (name,)) is not None
@@ -257,9 +459,13 @@ class AgentRepository(Repository):
     def names(self) -> list[str]:
         return [str(row["name"]) for row in self._db.query("SELECT name FROM agents ORDER BY name")]
 
+    def list_records(self) -> list[AgentRecord]:
+        rows = self._db.query("SELECT * FROM agents ORDER BY name")
+        return [self._to_record(row) for row in rows]
+
     def list(self) -> list[Agent]:
-        rows = self._db.query("SELECT payload FROM agents ORDER BY name")
-        return [self._decode(str(row["payload"])) for row in rows]
+        rows = self._db.query("SELECT * FROM agents ORDER BY name")
+        return [self._decode(row) for row in rows]
 
     def count(self) -> int:
         row = self._db.query_one("SELECT COUNT(*) AS total FROM agents")
