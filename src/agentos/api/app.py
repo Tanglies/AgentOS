@@ -44,6 +44,7 @@ from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
 from agentos.runtime.run_store import RunStore
 from agentos.runtime.runtime import AgentRuntime
+from agentos.runtime.services.agent_service import AgentService
 
 logger = get_logger(__name__)
 
@@ -81,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.llm_client = llm_client
         app.state.runtime = runtime
         app.state.audit_log = audit_log
+        app.state.agent_service = AgentService(runtime.registry, audit=audit_log)
         app.state.api_key_store = api_key_store
         logger.info(
             "application started",

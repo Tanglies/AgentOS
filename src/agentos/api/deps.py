@@ -12,6 +12,7 @@ from agentos.core.exceptions import PermissionDeniedError
 from agentos.llm.base import LLMClient
 from agentos.runtime.api_keys import ApiKeyStore, Permission
 from agentos.runtime.runtime import AgentRuntime
+from agentos.runtime.services.agent_service import AgentService
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -27,6 +28,17 @@ def get_runtime(request: Request) -> AgentRuntime:
 def get_llm_client(request: Request) -> LLMClient:
     """从应用状态读取 LLM 客户端。"""
     return request.app.state.llm_client
+
+
+def get_agent_service(request: Request) -> AgentService:
+    """从应用状态读取 Agent 生命周期服务。"""
+    service = getattr(request.app.state, "agent_service", None)
+    if service is None:
+        raise PermissionDeniedError(
+            "agent service is not initialized",
+            details={"hint": "create the application through create_app lifespan"},
+        )
+    return service
 
 
 def get_api_key_store(request: Request) -> ApiKeyStore:
@@ -65,4 +77,5 @@ def require(permission: Permission) -> Any:
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 RuntimeDep = Annotated[AgentRuntime, Depends(get_runtime)]
 LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
+AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 ApiKeyStoreDep = Annotated[ApiKeyStore, Depends(get_api_key_store)]

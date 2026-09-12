@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentos.database.models import AgentRecord
 from agentos.llm.base import TokenUsage
 from agentos.runtime.agent import AGENT_NAME_PATTERN, Agent
 from agentos.runtime.long_term_memory import MemoryRecord
@@ -63,22 +64,48 @@ class ToolListResponse(BaseModel):
 
 
 class AgentSummary(BaseModel):
-    """Agent 摘要信息。"""
+    """Agent 摘要与详情共用的响应模型。"""
 
+    id: int | None = None
     name: str
     description: str = ""
+    system_prompt: str | None = None
     model: str | None = None
+    temperature: float | None = None
     max_iterations: int | None = None
     tools: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     @classmethod
     def from_agent(cls, agent: Agent) -> AgentSummary:
         return cls(
             name=agent.name,
             description=agent.description,
+            system_prompt=agent.system_prompt,
             model=agent.model,
+            temperature=agent.temperature,
             max_iterations=agent.max_iterations,
             tools=list(agent.tools),
+            metadata=dict(agent.metadata),
+        )
+
+    @classmethod
+    def from_record(cls, record: AgentRecord) -> AgentSummary:
+        """Build a response from a persisted Agent record."""
+        return cls(
+            id=record.id,
+            name=record.name,
+            description=record.description,
+            system_prompt=record.system_prompt,
+            model=record.model,
+            temperature=record.temperature,
+            max_iterations=record.max_iterations,
+            tools=list(record.tools),
+            metadata=dict(record.metadata),
+            created_at=record.created_at,
+            updated_at=record.updated_at,
         )
 
 
@@ -99,10 +126,12 @@ class AgentCreateRequest(BaseModel):
 
 
 class AgentListResponse(BaseModel):
-    """Agent 列表响应。"""
+    """Agent 列表响应，保留总数并增加分页元数据。"""
 
     items: list[AgentSummary]
     total: int
+    page: int = 1
+    page_size: int = 20
 
 
 class RunSummary(BaseModel):
