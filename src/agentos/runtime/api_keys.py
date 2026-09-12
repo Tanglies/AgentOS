@@ -28,8 +28,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from agentos.core.config import ApiKeySettings
-from agentos.core.database import Database
 from agentos.core.exceptions import ConflictError, NotFoundError, ValidationError
+from agentos.database.connection import Database
 from agentos.runtime.repositories import (
     API_KEYS_SCHEMA,
     ApiKeyRecord,

@@ -9,11 +9,11 @@
 | 模块 | 能力 | 状态 |
 | --- | --- | --- |
 | HTTP 服务 | FastAPI 应用、统一错误响应、请求 ID、健康探针、OpenAPI 文档 | ✅ v0.1 |
-| 认证 | API Key 中间件（默认关闭、失败关闭、常量时间比较） | ✅ v0.1 |
+| 认证与权限 | API Key 中间件、数据库密钥、`资源:动作` 权限、工具执行鉴权 | ✅ v0.1 |
 | Agent 持久化 | 默认 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
 | 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页、排序 | ✅ v0.1 |
-| 数据访问层 | 统一 `Database` + Agent / Run / Memory 三个 Repository | ✅ v0.1 |
-| Evaluation | 延迟分位、token 用量、成功率、工具调用统计 | ✅ v0.1 |
+| 数据访问层 | `database` 包、迁移账本、Repository 基座 + Agent / Run / Memory / Audit / API Key 仓储 | ✅ v0.1 |
+| Evaluation | `evaluation` 包：延迟分位、token 用量、成功率、工具调用统计 | ✅ v0.1 |
 | 可观测性 | trace 贯穿全链路 + 审计日志（谁/何时/做了什么/结果） | ✅ v0.1 |
 | Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
@@ -25,7 +25,7 @@
 | Planning | 任务分解、步骤跟踪、进度注入系统提示词 | ✅ v0.1 |
 | Memory | 短期会话记忆（内存）+ 长期记忆（SQLite 持久化、关键词检索） | ✅ v0.1 |
 | Multi-Agent | 委托式协作（`delegate_to_agent`）、深度限制与子 Agent 隔离 | ✅ v0.1 |
-| Evaluation / Observability | 评测集、指标与链路追踪 | 规划中 |
+| 质量评估与导出 | 评测集、自动评分、Prometheus / OpenTelemetry、Docker | 规划中 |
 | Docker 部署 | 镜像与一键启动 | 规划中 |
 
 ## 架构
@@ -35,9 +35,12 @@ graph TD
     Client[客户端] --> API[api 层<br/>FastAPI 路由 / 中间件 / 依赖注入]
     API --> Runtime[runtime 层<br/>Agent / Message / AgentRuntime]
     Runtime --> LLM[llm 层<br/>LLMClient 抽象 / echo / OpenAI 兼容]
+    Runtime --> Database[database 层<br/>SQLite / Repository / Migration]
+    Evaluation[evaluation 层<br/>Metrics / Collector / Report] --> Runtime
     API --> Core[core 层<br/>配置 / 日志 / 上下文 / 异常]
     Runtime --> Core
     LLM --> Core
+    Database --> Core
 ```
 
 依赖方向固定为 `api → runtime → llm`，`core` 作为横切基础被各层复用，反向依赖被禁止。详见 [架构设计](docs/architecture.md)。
@@ -258,8 +261,9 @@ curl.exe "http://127.0.0.1:8000/api/v1/evaluation/summary?agent=assistant"
 }
 ```
 
-> 数据访问分两层：`core/database.py` 管连接与建表，
-> `runtime/repositories.py` 管 SQL 与模型转换；三个存储只是业务语义的外壳。
+> 数据访问分三层：`database/connection.py` 管连接、建表与迁移，
+> `database/repository.py` 定义 Repository 基座，`runtime/repositories.py` 管 SQL 与模型转换；
+> 三个存储只是业务语义的外壳。旧 `core/database.py` 路径仍保留兼容。
 
 ### 多 Agent 协作
 
@@ -410,17 +414,21 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 ```
 src/agentos/
 ├── api/          # FastAPI 装配、中间件、依赖注入、路由与请求/响应模型
-├── core/         # 配置、日志、请求上下文、异常体系
+├── core/         # 配置、日志、请求上下文、异常体系；保留旧数据库导入兼容
+├── database/     # SQLite 连接、迁移、Repository 基座与持久化模型
+├── evaluation/   # 评估指标、采集器与报告格式化
 ├── llm/          # LLM 客户端抽象、echo 与 OpenAI 兼容实现、工厂
-└── runtime/      # Agent、Message、注册表与执行内核
-tests/            # pytest 测试：配置 / 日志 / LLM / Runtime / API
-docs/             # 架构、配置与开发文档
+└── runtime/      # Agent、Message、注册表、持久化仓储与执行内核
+tests/            # pytest 测试：配置 / 日志 / LLM / Runtime / API / 持久化 / 评估
+docs/             # 架构、配置、数据库、评估、可观测性与开发文档
 ```
 
 ## 文档索引
 
 - [架构设计](docs/architecture.md)
 - [可观测性](docs/observability.md)
+- [数据库与 Repository](docs/database.md)
+- [Evaluation](docs/evaluation.md)
 - [配置说明](docs/configuration.md)
 - [开发指南](docs/development.md)
 - [变更记录](CHANGELOG.md)

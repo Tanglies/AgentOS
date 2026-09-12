@@ -12,8 +12,8 @@ from fastapi import APIRouter, Query
 
 from agentos.api.deps import RuntimeDep, require
 from agentos.core.exceptions import NotFoundError
+from agentos.evaluation import EvaluationSummary, Evaluator
 from agentos.runtime.api_keys import Permission
-from agentos.runtime.evaluation import EvaluationSummary, Evaluator
 
 router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 

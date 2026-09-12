@@ -3,19 +3,23 @@
 ## 分层与依赖方向
 
 ```
-┌─────────────────────────────────────────────┐
-│ api       FastAPI 装配 / 中间件 / 路由 / DTO │
-├─────────────────────────────────────────────┤
-│ runtime   Agent / Message / AgentRuntime     │
-├─────────────────────────────────────────────┤
-│ llm       LLMClient 抽象 / 具体实现 / 工厂    │
-├─────────────────────────────────────────────┤
-│ core      配置 / 日志 / 上下文 / 异常         │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│ api       FastAPI 装配 / 中间件 / 路由 / DTO         │
+├─────────────────────────────────────────────────────┤
+│ runtime   Agent / Message / AgentRuntime / Store     │
+├─────────────────────────────────────────────────────┤
+│ evaluation Metrics / Collector / Report              │
+├─────────────────────────────────────────────────────┤
+│ database  SQLite / Repository / Migration             │
+├─────────────────────────────────────────────────────┤
+│ llm       LLMClient 抽象 / 具体实现 / 工厂             │
+├─────────────────────────────────────────────────────┤
+│ core      配置 / 日志 / 上下文 / 异常                  │
+└─────────────────────────────────────────────────────┘
 ```
 
-依赖方向严格自上而下：`api → runtime → llm`，`core` 作为横切基础被各层复用。
-反向依赖（如 `core` 引用 `api`）被禁止，保证底层可独立测试与替换。
+依赖方向严格自上而下：`api → runtime → llm`；`database` 只依赖 `core`，`evaluation`
+只依赖 `runtime`，`core` 作为横切基础被各层复用。反向依赖（如 `core` 引用 `api`）被禁止。
 
 ## 模块职责
 
@@ -46,6 +50,13 @@
 | 认证 | `api/auth.py` | `APIKeyMiddleware`：静态/数据库密钥校验、失败关闭、身份绑定 |
 | API Key | `runtime/api_keys.py` | 密钥哈希、权限模型、签发、校验与吊销 |
 | 权限依赖 | `api/deps.py` | `require(permission)` 路由级鉴权；认证关闭时放行 |
+| 数据库连接 | `database/connection.py` | `Database` / `DatabaseManager`：连接、建目录、建表与迁移账本 |
+| 迁移机制 | `database/migrations/` | `Migration` 与 `MigrationRunner`，按版本幂等应用 |
+| Repository 基座 | `database/repository.py` | `Repository`、`:func:`build_filter`` 与共享参数化查询工具 |
+| 持久化模型 | `database/models.py` | `SchemaMigration`、`Pagination` 等跨仓储模型 |
+| 评估指标 | `evaluation/metrics.py` | latency / token / tool-call 指标与可扩展 `Metric` 抽象 |
+| 评估采集 | `evaluation/collector.py` | `Evaluator` / `EvaluationCollector` |
+| 评估报告 | `evaluation/report.py` | `EvaluationReport` 的 JSON 与 Markdown 格式化 |
 | 持久化注册表 | `runtime/sqlite_registry.py` | `SQLiteAgentRegistry`：Agent 定义落盘 |
 | 运行记录 | `runtime/run_store.py` | `RunStore`：运行历史落盘，支持过滤分页 |
 | 审计日志 | `runtime/audit.py` | `AuditLog`：谁/何时/做了什么/结果，上下文字段自动捕获 |
@@ -110,6 +121,8 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 审计与运行记录分表 | 前者面向追责（量小固定），后者面向排查（量大含轨迹） |
 | 审计记密钥指纹而非原文 | 能区分「哪把钥匙」，又不可反推密钥 |
 | 注册表持久化默认关闭 | 内存实现零依赖、启动即用；需要跨重启保留时再开启 |
+| 显式迁移账本 | 只靠 `CREATE TABLE IF NOT EXISTS` 无法表达字段变更，`schema_migrations` 可按版本幂等执行 |
+| 评估与运行记录解耦 | 采集器只依赖 `RunRepository`，未来可以替换统计源或增加自定义 `Metric` |
 | 认证默认关闭 | 本地开发的便利性优先；对外暴露时由部署方显式开启 |
 | 认证失败关闭 | 开启但没配密钥时拒绝一切，避免配置失误变成未授权访问 |
 | 认证位于请求上下文内层 | 401 响应也能带 `request_id` 并写入访问日志，便于排查 |
@@ -130,5 +143,6 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 ## v0.1 边界
 
 阶段 1 已全部完成（Tool Calling、Planning、短期与长期记忆、Multi-Agent 委托、流式回复），
-阶段 2 已实现平台级 API Key、权限绑定与工具执行鉴权。**尚未实现**：用户账号与工作区隔离、
-配额与限流、向量检索、评测集与自动评分、指标导出与容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。
+阶段 2 已完成 SQLite 持久化结构对齐、迁移账本、Repository 基座、API Key 权限与工具执行鉴权；
+阶段 3 已完成基础 Evaluation 与审计/链路追踪。**尚未实现**：用户账号与工作区隔离、
+配额与限流、向量检索、评测集与自动评分、Prometheus/OpenTelemetry 导出与容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。

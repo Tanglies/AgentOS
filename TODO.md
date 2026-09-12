@@ -45,8 +45,8 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [ ] 更细的工具访问控制：按用户/角色限制可用工具
 - [ ] API 完善（分页、过滤、批量操作）
 - [ ] 数据模型与迁移机制
-  - [x] 统一 `Database` 模块 + Repository 层（`core/database.py`、`runtime/repositories.py`）
-  - [ ] schema 版本表与增量迁移脚本
+  - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）
+  - [x] schema 版本表与增量迁移基础（`database/migrations/`，支持按版本幂等执行）
 
 ## 阶段 3：工程能力
 
@@ -57,7 +57,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [x] `docs/observability.md`
   - [ ] 指标导出：Prometheus / OpenTelemetry
   - [ ] 审计防篡改与保留期策略
-- [ ] Evaluation：评测集与自动评分
+- [ ] Evaluation：评测集与自动评分（基础指标包已拆分到 `evaluation/`）
   - [x] 基础指标：延迟分位、token 用量、成功率、工具调用（`GET /api/v1/evaluation/summary`）
   - [ ] 评测集：构造用例集与期望输出
   - [ ] 自动评分：规则评分 + 裁判模型评分

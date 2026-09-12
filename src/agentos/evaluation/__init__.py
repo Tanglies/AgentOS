@@ -1,10 +1,8 @@
-"""Compatibility import for :mod:`agentos.evaluation`."""
+"""Evaluation metrics, collectors, and report formatters."""
 
-from agentos.evaluation import (
-    EvaluationCollector,
-    EvaluationReport,
+from agentos.evaluation.collector import EvaluationCollector, Evaluator
+from agentos.evaluation.metrics import (
     EvaluationSummary,
-    Evaluator,
     LatencyMetric,
     LatencyMetrics,
     Metric,
@@ -14,6 +12,7 @@ from agentos.evaluation import (
     ToolCallMetrics,
     percentile,
 )
+from agentos.evaluation.report import EvaluationReport
 
 __all__ = [
     "EvaluationCollector",

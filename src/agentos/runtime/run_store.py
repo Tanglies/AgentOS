@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentos.core.config import RunStoreSettings
-from agentos.core.database import Database
 from agentos.core.exceptions import NotFoundError
+from agentos.database.connection import Database
 from agentos.runtime.repositories import (
     RUNS_SCHEMA,
     RunAggregate,

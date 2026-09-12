@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agentos.core.config import MemorySettings
-from agentos.core.database import Database
+from agentos.database.connection import Database
 from agentos.runtime.repositories import (
     MEMORIES_SCHEMA,
     MemoryRecord,

@@ -19,8 +19,8 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agentos.core.database import Database
 from agentos.core.exceptions import ConflictError, NotFoundError
+from agentos.database.connection import Database
 from agentos.runtime.agent import Agent
 from agentos.runtime.repositories import AGENTS_SCHEMA, AgentRepository
 

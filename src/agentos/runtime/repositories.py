@@ -21,7 +21,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agentos.core.database import Database
+from agentos.database.connection import Database
+from agentos.database.repository import Repository
+from agentos.database.repository import build_filter as _build_filter
 from agentos.runtime.agent import Agent
 from agentos.runtime.message import Message
 
@@ -217,18 +219,7 @@ class RunAggregate(BaseModel):
         return self.total_tool_calls / self.runs if self.runs else 0.0
 
 
-def _build_filter(
-    clauses: list[tuple[str, Any]],
-) -> tuple[str, tuple[Any, ...]]:
-    """把 ``[(列, 值)]`` 拼成 WHERE 子句与参数元组。"""
-    active = [(sql, value) for sql, value in clauses if value is not None]
-    if not active:
-        return "", ()
-    where = "WHERE " + " AND ".join(sql for sql, _ in active)
-    return where, tuple(value for _, value in active)
-
-
-class AgentRepository:
+class AgentRepository(Repository):
     """``agents`` 表的数据访问。"""
 
     def __init__(self, database: Database) -> None:
@@ -275,7 +266,7 @@ class AgentRepository:
         return int(row["total"]) if row is not None else 0
 
 
-class RunRepository:
+class RunRepository(Repository):
     """``runs`` 表的数据访问。"""
 
     def __init__(self, database: Database) -> None:
@@ -308,6 +299,14 @@ class RunRepository:
     def get(self, run_id: str) -> RunRecord | None:
         row = self._db.query_one("SELECT payload FROM runs WHERE run_id = ?", (run_id,))
         return self._decode(str(row["payload"])) if row is not None else None
+
+    def create_run(self, record: RunRecord) -> None:
+        """Compatibility name for creating a run record."""
+        self.add(record)
+
+    def finish_run(self, record: RunRecord) -> None:
+        """Compatibility name for persisting the final run state."""
+        self.add(record)
 
     def list(
         self,
@@ -426,7 +425,7 @@ class RunRepository:
         return _build_filter(clauses)
 
 
-class MemoryRepository:
+class MemoryRepository(Repository):
     """``memories`` 表的数据访问。"""
 
     def __init__(self, database: Database) -> None:
@@ -462,6 +461,16 @@ class MemoryRepository:
         )
         return [self._to_record(row) for row in rows]
 
+    def save_memory(
+        self, *, content: str, session_id: str | None, created_at: datetime
+    ) -> MemoryRecord:
+        """Compatibility name for writing a memory record."""
+        return self.add(content=content, session_id=session_id, created_at=created_at)
+
+    def search_memory(self, *, terms: Sequence[str], limit: int) -> list[MemoryRecord]:
+        """Compatibility name for keyword search."""
+        return self.search(terms=terms, limit=limit)
+
     def search(self, *, terms: Sequence[str], limit: int) -> list[MemoryRecord]:
         """按关键词加权召回：命中词越长得分越高。"""
         if not terms:
@@ -494,7 +503,7 @@ class MemoryRepository:
         row = self._db.query_one("SELECT COUNT(*) AS total FROM memories")
         return int(row["total"]) if row is not None else 0
 
-class AuditRepository:
+class AuditRepository(Repository):
     """``audit_logs`` 表的数据访问。"""
 
     def __init__(self, database: Database) -> None:
@@ -598,7 +607,7 @@ class AuditRepository:
         return self._db.execute("DELETE FROM audit_logs")
 
 
-class ApiKeyRepository:
+class ApiKeyRepository(Repository):
     """``api_keys`` 表的数据访问。"""
 
     def __init__(self, database: Database) -> None:

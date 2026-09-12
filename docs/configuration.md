@@ -244,6 +244,40 @@ from agentos.llm import register_provider
 register_provider("my_provider", lambda settings: MyLLMClient(settings))
 ```
 
+## 数据库与迁移
+
+数据层统一使用 `database/connection.py` 的 `DatabaseManager`（兼容类名 `Database`）。
+每个 SQLite 操作打开短连接，连接时自动确保父目录存在；数据库文件被删除后会重建表结构。
+新增数据库或字段时应使用 `database/migrations/`：
+
+```python
+from agentos.database import DatabaseManager, Migration
+
+db = DatabaseManager(
+    ".agentos/example.db",
+    migrations=[
+        Migration(1, "create-items", "CREATE TABLE items (id INTEGER PRIMARY KEY);"),
+        Migration(2, "add-name", "ALTER TABLE items ADD COLUMN name TEXT;"),
+    ],
+)
+```
+
+`schema_migrations` 账本确保每个版本只执行一次。旧 `agentos.core.database.Database`
+导入路径保留为兼容入口，新代码应使用 `agentos.database`。Repository 基座位于
+`agentos.database.repository`，业务仓储位于 `agentos.runtime.repositories`。
+
+## 评估模块
+
+`agentos.evaluation` 提供三类基础指标：
+
+- `latency`：avg / p50 / p95 / max；
+- `tokens`：prompt / completion / total / avg_per_run；
+- `tool_calls`：合计、均值、单次最多、使用工具的运行数。
+
+`Evaluator` 从 `RunRepository` 读取聚合数据，API 的评估响应保持既有格式；
+`Metric` 是可扩展抽象，额外指标可通过 `Evaluator.collect()` 获取。
+详细说明见 [Evaluation](evaluation.md)。
+
 ## 安全注意
 
 - `.env` 已被 `.gitignore` 忽略，切勿提交真实密钥

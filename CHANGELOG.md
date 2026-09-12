@@ -7,6 +7,17 @@
 
 ### 新增
 
+- **数据库与评估模块结构对齐**
+  - 新增 `agentos.database`：`DatabaseManager`、连接管理、schema 迁移账本、
+    `Repository` 基座与 `database/models.py`
+  - 新增 `agentos.evaluation`：`metrics.py` / `collector.py` / `report.py`，
+    保留 `runtime.evaluation` 兼容导入
+  - RunRepository 对齐 `create_run` / `finish_run`，MemoryRepository 对齐
+    `save_memory` / `search_memory`，既有方法继续可用
+  - `core.database` 保留兼容入口，现有 API 返回格式不变
+  - 新增数据库迁移、Repository 与 Evaluation 结构性测试
+  - 测试增至 488 个用例；新增 `tests/test_database_package.py`、`tests/test_repository.py` 与 `tests/test_evaluation_package.py`
+
 - **API Key 权限系统（阶段 2 安全增强）**
   - 新增 `runtime/api_keys.py`：`Permission` / `ApiKeyIdentity` / `ApiKeyStore`
   - 静态配置密钥作为管理员引导，数据库密钥支持命名、权限、签发、列表与软吊销

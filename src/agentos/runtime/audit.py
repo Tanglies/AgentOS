@@ -33,7 +33,7 @@ from agentos.core.context import (
     get_tool_name,
     get_trace_id,
 )
-from agentos.core.database import Database
+from agentos.database.connection import Database
 from agentos.runtime.repositories import (
     AUDIT_SCHEMA,
     AuditEntry,
