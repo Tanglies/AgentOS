@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import secrets
+from typing import TYPE_CHECKING, Any
 
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
@@ -27,9 +28,44 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from agentos.core.config import AuthSettings
 from agentos.core.logging import get_logger
 
+if TYPE_CHECKING:  # pragma: no cover
+    from fastapi import FastAPI
+
 logger = get_logger(__name__)
 
 UNAUTHORIZED_CODE = "unauthorized"
+SECURITY_SCHEME_NAME = "APIKeyHeader"
+
+
+def install_api_key_security_scheme(app: FastAPI, settings: AuthSettings) -> None:
+    """给 OpenAPI 补上 API Key 安全方案，让 Swagger UI 出现 Authorize 按钮。
+
+    认证是用**中间件**实现的，路由上没有声明任何依赖，因此 FastAPI
+    不会自动生成 ``securitySchemes`` —— Swagger UI 也就没有地方填 Key，
+    浏览器里点任何接口都只能拿到 401。
+
+    这里手动补上方案，浏览器就能先 Authorize 再调接口。
+    未开启认证时不注入，避免给免认证的部署造成误导。
+    """
+    if not settings.enabled:
+        return
+
+    original_openapi = app.openapi
+
+    def custom_openapi() -> dict[str, Any]:
+        schema = original_openapi()
+        components = schema.setdefault("components", {})
+        schemes = components.setdefault("securitySchemes", {})
+        if SECURITY_SCHEME_NAME not in schemes:
+            schemes[SECURITY_SCHEME_NAME] = {
+                "type": "apiKey",
+                "in": "header",
+                "name": settings.header_name,
+            }
+            schema["security"] = [{SECURITY_SCHEME_NAME: []}]
+        return schema
+
+    app.openapi = custom_openapi  # type: ignore[method-assign]
 
 
 class APIKeyMiddleware:

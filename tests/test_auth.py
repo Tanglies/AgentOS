@@ -188,3 +188,58 @@ def test_api_key_is_not_leaked_in_response() -> None:
         body = client.get("/api/v1/agents").text
 
     assert API_KEY not in body
+
+
+# --- Swagger UI 支持 ------------------------------------------------------
+
+
+def test_openapi_declares_api_key_security_scheme() -> None:
+    """中间件实现的认证不会自动出现在 OpenAPI 里，需要手动注入。"""
+    with TestClient(_app()) as client:
+        schema = client.get("/openapi.json").json()
+
+    scheme = schema["components"]["securitySchemes"]["APIKeyHeader"]
+    assert scheme == {"type": "apiKey", "in": "header", "name": HEADER}
+    assert schema["security"] == [{"APIKeyHeader": []}]
+
+
+def test_security_scheme_uses_configured_header_name() -> None:
+    app = create_app(
+        Settings(
+            _env_file=None,
+            llm={"provider": "echo"},
+            logging={"level": "ERROR"},
+            auth={
+                "enabled": True,
+                "api_keys": [SecretStr(API_KEY)],
+                "header_name": "X-Custom-Token",
+            },
+        )
+    )
+
+    with TestClient(app) as client:
+        schema = client.get("/openapi.json").json()
+
+    assert schema["components"]["securitySchemes"]["APIKeyHeader"]["name"] == "X-Custom-Token"
+
+
+def test_no_security_scheme_when_auth_disabled() -> None:
+    """未开启认证时不要声明安全方案，否则会误导接口调用方。"""
+    with TestClient(_app(enabled=False)) as client:
+        schema = client.get("/openapi.json").json()
+
+    assert "securitySchemes" not in schema.get("components", {})
+    assert "security" not in schema
+
+
+def test_docs_page_is_reachable_before_authorizing() -> None:
+    """Swagger UI 本身必须免认证，否则拿不到 Authorize 按钮。"""
+    with TestClient(_app()) as client:
+        assert client.get("/docs").status_code == 200
+
+
+def test_openapi_still_declares_charset_with_auth() -> None:
+    with TestClient(_app()) as client:
+        response = client.get("/openapi.json")
+
+    assert response.headers["content-type"] == "application/json; charset=utf-8"

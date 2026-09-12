@@ -16,6 +16,13 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **Swagger UI 支持 API Key 认证**：浏览器里也能验证接口
+  - 认证是中间件实现的，路由上没有声明依赖，FastAPI 不会自动生成
+    `securitySchemes`，Swagger UI 也就没有地方填 Key，点任何接口都只能拿到 401
+  - 新增 `install_api_key_security_scheme()`：手动注入 `APIKeyHeader` 安全方案，
+    让 Swagger 出现 **Authorize** 按钮
+  - 未开启认证时不注入，避免给免认证部署造成误导
+  - `AGENTOS_AUTH__HEADER_NAME` 会同步反映到安全方案里
 - **JSON 响应补上 charset**：修复 PowerShell 5.1 读接口中文乱码
   - 根因：Starlette 只在 `text/*` 上自动补 charset，`application/json` 不带；
     而 PS 5.1 的 `Invoke-WebRequest` 在没有 charset 时按 **ISO-8859-1** 解码
@@ -144,6 +151,8 @@
 - 测试增至 327 个用例，新增 `tests/test_sqlite_registry.py`（20 个）
 - charset 中间件放在**最外层**，确保所有内层响应（含异常处理与内置路由）都被覆盖
 - 测试增至 337 个用例，新增 `tests/test_responses.py`（10 个）
+- 安全方案的注入用包装 `app.openapi` 实现，保持幂等；OpenAPI 本身仍走 charset 中间件
+- 测试增至 342 个用例，`tests/test_auth.py` 补充 5 个 Swagger 相关用例
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），
