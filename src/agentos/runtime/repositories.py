@@ -32,7 +32,8 @@ from agentos.runtime.message import Message
 AGENTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
+    name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     system_prompt TEXT,
     model TEXT,
@@ -42,14 +43,18 @@ CREATE TABLE IF NOT EXISTS agents (
     metadata TEXT NOT NULL DEFAULT '{}',
     payload TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    UNIQUE (workspace_id, name)
 );
-CREATE INDEX IF NOT EXISTS idx_agents_name ON agents (name);
+CREATE INDEX IF NOT EXISTS idx_agents_workspace_name
+    ON agents (workspace_id, name);
 """
 
 RUNS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER,
     agent TEXT NOT NULL,
     session_id TEXT,
     status TEXT NOT NULL,
@@ -62,6 +67,8 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs (agent);
 CREATE INDEX IF NOT EXISTS idx_runs_session ON runs (session_id);
+CREATE INDEX IF NOT EXISTS idx_runs_workspace_created
+    ON runs (workspace_id, created_at DESC);
 """
 
 API_KEYS_SCHEMA = """
@@ -121,6 +128,8 @@ class RunRecord(BaseModel):
     """一次运行的记录。"""
 
     run_id: str
+    workspace_id: int = DEFAULT_WORKSPACE_ID
+    user_id: int | None = None
     agent: str
     session_id: str | None = None
     status: RunStatus = RunStatus.COMPLETED
@@ -235,7 +244,7 @@ class RunAggregate(BaseModel):
 
 
 class AgentRepository(Repository):
-    """``agents`` 表的数据访问。"""
+    """Workspace-scoped access to the ``agents`` table."""
 
     _LEGACY_COLUMNS = {
         "id": "INTEGER",
@@ -253,16 +262,39 @@ class AgentRepository(Repository):
         self._ensure_columns()
 
     def _ensure_columns(self) -> None:
-        """Upgrade pre-structured Agent tables without breaking old rows."""
+        """Upgrade legacy Agent tables and migrate to Workspace uniqueness."""
         self._db.ensure_columns(
             "agents",
             self._LEGACY_COLUMNS,
             backfill="UPDATE agents SET id = rowid WHERE id IS NULL",
         )
         self._backfill_legacy_payload()
+        columns = {
+            str(row["name"])
+            for row in self._db.query("PRAGMA table_info(agents)")
+        }
+        if "workspace_id" not in columns:
+            self._migrate_workspace_schema()
+
+    def _migrate_workspace_schema(self) -> None:
+        """Rebuild the table so uniqueness becomes ``(workspace_id, name)``."""
+        with self._db.transaction() as conn:
+            conn.execute("ALTER TABLE agents RENAME TO agents_legacy")
+            conn.executescript(AGENTS_SCHEMA)
+            conn.execute(
+                "INSERT INTO agents "
+                "(id, workspace_id, name, description, system_prompt, model, "
+                " temperature, max_iterations, tools, metadata, payload, "
+                " created_at, updated_at) "
+                "SELECT id, 1, name, description, system_prompt, model, "
+                "       temperature, max_iterations, tools, metadata, payload, "
+                "       created_at, updated_at "
+                "FROM agents_legacy"
+            )
+            conn.execute("DROP TABLE agents_legacy")
 
     def _backfill_legacy_payload(self) -> None:
-        """Populate new columns from the legacy JSON payload when needed."""
+        """Populate structured columns from the legacy JSON payload."""
         with self._db.connect() as conn:
             rows = conn.execute(
                 "SELECT name, payload, description, system_prompt, model, "
@@ -273,25 +305,12 @@ class AgentRepository(Repository):
                 updates: dict[str, Any] = {}
                 if not row["description"] and payload.get("description"):
                     updates["description"] = payload["description"]
-                for field in (
-                    "system_prompt",
-                    "model",
-                    "temperature",
-                    "max_iterations",
-                ):
+                for field in ("system_prompt", "model", "temperature", "max_iterations"):
                     if row[field] is None and payload.get(field) is not None:
                         updates[field] = payload[field]
-                if (
-                    (not row["tools"] or row["tools"] == "[]")
-                    and payload.get("tools")
-                ):
-                    updates["tools"] = json.dumps(
-                        payload["tools"], ensure_ascii=False
-                    )
-                if (
-                    (not row["metadata"] or row["metadata"] == "{}")
-                    and payload.get("metadata")
-                ):
+                if (not row["tools"] or row["tools"] == "[]") and payload.get("tools"):
+                    updates["tools"] = json.dumps(payload["tools"], ensure_ascii=False)
+                if (not row["metadata"] or row["metadata"] == "{}") and payload.get("metadata"):
                     updates["metadata"] = json.dumps(
                         payload["metadata"], ensure_ascii=False
                     )
@@ -313,7 +332,6 @@ class AgentRepository(Repository):
         return value if isinstance(value, dict) else {}
 
     def _decode(self, row: Any) -> Agent:
-        """Decode structured columns with JSON payload as a compatibility fallback."""
         payload = self._payload(row)
         return Agent(
             name=str(row["name"]),
@@ -350,6 +368,7 @@ class AgentRepository(Repository):
         agent = self._decode(row)
         return AgentRecord(
             id=int(row["id"]) if row["id"] is not None else None,
+            workspace_id=int(row["workspace_id"]),
             name=agent.name,
             description=agent.description,
             system_prompt=agent.system_prompt,
@@ -363,7 +382,9 @@ class AgentRepository(Repository):
         )
 
     @staticmethod
-    def _values(agent: Agent, *, created_at: datetime, updated_at: datetime) -> tuple[Any, ...]:
+    def _values(
+        agent: Agent, *, created_at: datetime, updated_at: datetime
+    ) -> tuple[Any, ...]:
         return (
             agent.name,
             agent.description,
@@ -378,24 +399,31 @@ class AgentRepository(Repository):
             updated_at.isoformat(),
         )
 
-    def add(self, agent: Agent, *, created_at: datetime) -> AgentRecord:
-        """Insert an Agent and return its persisted lifecycle record."""
+    def add(
+        self,
+        agent: Agent,
+        *,
+        created_at: datetime,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+    ) -> AgentRecord:
         values = self._values(agent, created_at=created_at, updated_at=created_at)
         with self._db.connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO agents "
-                "(name, description, system_prompt, model, temperature, max_iterations, "
-                " tools, metadata, payload, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                values,
+                "(workspace_id, name, description, system_prompt, model, "
+                " temperature, max_iterations, tools, metadata, payload, "
+                " created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (workspace_id, *values),
             )
             record_id = int(cursor.lastrowid or 0)
             conn.execute(
-                "UPDATE agents SET id = ? WHERE name = ?",
-                (record_id, agent.name),
+                "UPDATE agents SET id = ? WHERE workspace_id = ? AND name = ?",
+                (record_id, workspace_id, agent.name),
             )
         return AgentRecord(
             id=record_id,
+            workspace_id=workspace_id,
             name=agent.name,
             description=agent.description,
             system_prompt=agent.system_prompt,
@@ -408,16 +436,21 @@ class AgentRepository(Repository):
             updated_at=created_at,
         )
 
-    def replace(self, agent: Agent, *, updated_at: datetime) -> AgentRecord:
-        """Replace an existing Agent while preserving its id and created_at."""
-        existing = self.get_record(agent.name)
+    def replace(
+        self,
+        agent: Agent,
+        *,
+        updated_at: datetime,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+    ) -> AgentRecord:
+        existing = self.get_record(agent.name, workspace_id=workspace_id)
         if existing is None:
-            return self.add(agent, created_at=updated_at)
+            return self.add(agent, created_at=updated_at, workspace_id=workspace_id)
         self._db.execute(
             "UPDATE agents SET "
             "description = ?, system_prompt = ?, model = ?, temperature = ?, "
             "max_iterations = ?, tools = ?, metadata = ?, payload = ?, updated_at = ? "
-            "WHERE name = ?",
+            "WHERE workspace_id = ? AND name = ?",
             (
                 agent.description,
                 agent.system_prompt,
@@ -428,6 +461,7 @@ class AgentRepository(Repository):
                 json.dumps(agent.metadata, ensure_ascii=False),
                 agent.model_dump_json(),
                 updated_at.isoformat(),
+                workspace_id,
                 agent.name,
             ),
         )
@@ -444,65 +478,112 @@ class AgentRepository(Repository):
             }
         )
 
-    def remove(self, name: str) -> bool:
-        return self._db.execute("DELETE FROM agents WHERE name = ?", (name,)) > 0
+    def remove(self, name: str, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> bool:
+        return (
+            self._db.execute(
+                "DELETE FROM agents WHERE workspace_id = ? AND name = ?",
+                (workspace_id, name),
+            )
+            > 0
+        )
 
-    def get_record(self, name: str) -> AgentRecord | None:
-        row = self._db.query_one("SELECT * FROM agents WHERE name = ?", (name,))
+    def get_record(
+        self, name: str, *, workspace_id: int = DEFAULT_WORKSPACE_ID
+    ) -> AgentRecord | None:
+        row = self._db.query_one(
+            "SELECT * FROM agents WHERE workspace_id = ? AND name = ?",
+            (workspace_id, name),
+        )
         return self._to_record(row) if row is not None else None
 
-    def get(self, name: str) -> Agent | None:
-        return self._repo_agent(name)
-
-    def _repo_agent(self, name: str) -> Agent | None:
-        row = self._db.query_one("SELECT * FROM agents WHERE name = ?", (name,))
+    def get(self, name: str, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> Agent | None:
+        row = self._db.query_one(
+            "SELECT * FROM agents WHERE workspace_id = ? AND name = ?",
+            (workspace_id, name),
+        )
         return self._decode(row) if row is not None else None
 
-    def exists(self, name: str) -> bool:
-        return self._db.query_one("SELECT 1 FROM agents WHERE name = ?", (name,)) is not None
+    def exists(self, name: str, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> bool:
+        return (
+            self._db.query_one(
+                "SELECT 1 FROM agents WHERE workspace_id = ? AND name = ?",
+                (workspace_id, name),
+            )
+            is not None
+        )
 
-    def names(self) -> list[str]:
-        return [str(row["name"]) for row in self._db.query("SELECT name FROM agents ORDER BY name")]
+    def names(self, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> list[str]:
+        rows = self._db.query(
+            "SELECT name FROM agents WHERE workspace_id = ? ORDER BY name",
+            (workspace_id,),
+        )
+        return [str(row["name"]) for row in rows]
 
     def list_records(
-        self, *, limit: int | None = None, offset: int = 0
+        self,
+        *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[AgentRecord]:
-        sql = "SELECT * FROM agents ORDER BY name"
-        params: tuple[Any, ...] = ()
+        sql = "SELECT * FROM agents WHERE workspace_id = ? ORDER BY name"
+        params: tuple[Any, ...] = (workspace_id,)
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
-            params = (limit, offset)
+            params = (workspace_id, limit, offset)
         rows = self._db.query(sql, params)
         return [self._to_record(row) for row in rows]
 
-    def list(self) -> list[Agent]:
-        rows = self._db.query("SELECT * FROM agents ORDER BY name")
+    def list(self, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> list[Agent]:
+        rows = self._db.query(
+            "SELECT * FROM agents WHERE workspace_id = ? ORDER BY name",
+            (workspace_id,),
+        )
         return [self._decode(row) for row in rows]
 
-    def count(self) -> int:
-        row = self._db.query_one("SELECT COUNT(*) AS total FROM agents")
+    def count(self, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> int:
+        row = self._db.query_one(
+            "SELECT COUNT(*) AS total FROM agents WHERE workspace_id = ?",
+            (workspace_id,),
+        )
         return int(row["total"]) if row is not None else 0
 
 
 class RunRepository(Repository):
-    """``runs`` 表的数据访问。"""
+    """Workspace-scoped access to the ``runs`` table."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
+        self._db.ensure_columns(
+            "runs",
+            {
+                "workspace_id": "INTEGER NOT NULL DEFAULT 1",
+                "user_id": "INTEGER",
+            },
+            backfill=(
+                "UPDATE runs SET workspace_id = 1 WHERE workspace_id IS NULL; "
+                "UPDATE runs SET user_id = 1 WHERE user_id IS NULL"
+            ),
+        )
 
     @staticmethod
-    def _decode(payload: str) -> RunRecord:
-        return RunRecord.model_validate(json.loads(payload))
+    def _decode(row: Any) -> RunRecord:
+        payload = json.loads(str(row["payload"]))
+        payload["workspace_id"] = int(row["workspace_id"] or DEFAULT_WORKSPACE_ID)
+        payload["user_id"] = row["user_id"]
+        return RunRecord.model_validate(payload)
 
     def add(self, record: RunRecord) -> None:
         """写入一条运行记录（同 run_id 覆盖）。"""
         self._db.execute(
             "INSERT OR REPLACE INTO runs "
-            "(run_id, agent, session_id, status, created_at, duration_ms, "
-            " total_tokens, tool_call_count, payload) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(run_id, workspace_id, user_id, agent, session_id, status, "
+            " created_at, duration_ms, total_tokens, tool_call_count, payload) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record.run_id,
+                record.workspace_id,
+                record.user_id,
                 record.agent,
                 record.session_id,
                 record.status.value,
@@ -514,9 +595,14 @@ class RunRepository(Repository):
             ),
         )
 
-    def get(self, run_id: str) -> RunRecord | None:
-        row = self._db.query_one("SELECT payload FROM runs WHERE run_id = ?", (run_id,))
-        return self._decode(str(row["payload"])) if row is not None else None
+    def get(
+        self, run_id: str, *, workspace_id: int = DEFAULT_WORKSPACE_ID
+    ) -> RunRecord | None:
+        row = self._db.query_one(
+            "SELECT * FROM runs WHERE run_id = ? AND workspace_id = ?",
+            (run_id, workspace_id),
+        )
+        return self._decode(row) if row is not None else None
 
     def create_run(self, record: RunRecord) -> None:
         """Compatibility name for creating a run record."""
@@ -533,21 +619,26 @@ class RunRepository(Repository):
         session_id: str | None = None,
         status: RunStatus | None = None,
         since: datetime | None = None,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
         order: str = "desc",
         limit: int = 50,
         offset: int = 0,
     ) -> list[RunRecord]:
-        """按条件查询，默认最新在前；``order='asc'`` 可改为最早在前。"""
+        """按 Workspace 和条件查询，默认最新在前。"""
         where, params = self._where(
-            agent=agent, session_id=session_id, status=status, since=since
+            workspace_id=workspace_id,
+            agent=agent,
+            session_id=session_id,
+            status=status,
+            since=since,
         )
         direction = "ASC" if str(order).lower() == "asc" else "DESC"
         sql = (
-            "SELECT payload FROM runs "
+            "SELECT * FROM runs "
             f"{where} ORDER BY created_at {direction}, rowid {direction} LIMIT ? OFFSET ?"
         )
         rows = self._db.query(sql, (*params, limit, offset))
-        return [self._decode(str(row["payload"])) for row in rows]
+        return [self._decode(row) for row in rows]
 
     def count(
         self,
@@ -556,23 +647,33 @@ class RunRepository(Repository):
         session_id: str | None = None,
         status: RunStatus | None = None,
         since: datetime | None = None,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
     ) -> int:
         where, params = self._where(
-            agent=agent, session_id=session_id, status=status, since=since
+            workspace_id=workspace_id,
+            agent=agent,
+            session_id=session_id,
+            status=status,
+            since=since,
         )
         row = self._db.query_one(f"SELECT COUNT(*) AS total FROM runs {where}", params)
         return int(row["total"]) if row is not None else 0
 
-    def clear(self) -> int:
-        return self._db.execute("DELETE FROM runs")
-
-    def prune(self, keep: int) -> int:
-        """只保留最近 ``keep`` 条，返回删除条数。"""
+    def clear(self, *, workspace_id: int | None = None) -> int:
+        if workspace_id is None:
+            return self._db.execute("DELETE FROM runs")
         return self._db.execute(
-            "DELETE FROM runs WHERE run_id IN ("
-            "  SELECT run_id FROM runs ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?"
+            "DELETE FROM runs WHERE workspace_id = ?", (workspace_id,)
+        )
+
+    def prune(self, keep: int, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> int:
+        """只保留当前 Workspace 最近 ``keep`` 条。"""
+        return self._db.execute(
+            "DELETE FROM runs WHERE workspace_id = ? AND run_id IN ("
+            "  SELECT run_id FROM runs WHERE workspace_id = ? "
+            "  ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?"
             ")",
-            (keep,),
+            (workspace_id, workspace_id, keep),
         )
 
     def aggregate(
@@ -629,12 +730,14 @@ class RunRepository(Repository):
     @staticmethod
     def _where(
         *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
         agent: str | None,
         session_id: str | None,
         status: RunStatus | None = None,
         since: datetime | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
         clauses: list[tuple[str, Any]] = [
+            ("workspace_id = ?", workspace_id),
             ("agent = ?", agent),
             ("session_id = ?", session_id),
             ("status = ?", status.value if status else None),

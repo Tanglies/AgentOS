@@ -74,6 +74,7 @@ class AgentSummary(BaseModel):
     """Agent 摘要与详情共用的响应模型。"""
 
     id: int | None = None
+    workspace_id: int = 1
     name: str
     description: str = ""
     system_prompt: str | None = None
@@ -103,6 +104,7 @@ class AgentSummary(BaseModel):
         """Build a response from a persisted Agent record."""
         return cls(
             id=record.id,
+            workspace_id=record.workspace_id,
             name=record.name,
             description=record.description,
             system_prompt=record.system_prompt,
@@ -145,6 +147,8 @@ class RunSummary(BaseModel):
     """运行记录摘要（不含消息列表，用于列表接口）。"""
 
     run_id: str
+    workspace_id: int = 1
+    user_id: int | None = None
     agent: str
     session_id: str | None = None
     status: str = "completed"
@@ -163,6 +167,8 @@ class RunSummary(BaseModel):
     def from_record(cls, record: RunRecord) -> RunSummary:
         return cls(
             run_id=record.run_id,
+            workspace_id=record.workspace_id,
+            user_id=record.user_id,
             agent=record.agent,
             session_id=record.session_id,
             status=record.status.value,

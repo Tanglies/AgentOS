@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
+
 
 class SchemaMigration(BaseModel):
     """One row in the migration ledger."""
@@ -27,6 +29,7 @@ class AgentRecord(BaseModel):
     """Persisted Agent representation with lifecycle metadata."""
 
     id: int | None = None
+    workspace_id: int = DEFAULT_WORKSPACE_ID
     name: str
     description: str = ""
     system_prompt: str | None = None

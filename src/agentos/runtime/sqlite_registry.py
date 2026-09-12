@@ -1,17 +1,4 @@
-"""把 Agent 定义持久化到 SQLite 的注册表。
-
-接口与内存版 :class:`~agentos.runtime.registry.AgentRegistry` 一致，
-区别是进程重启后 Agent 不会丢失。
-
-数据访问委托给 :class:`~agentos.runtime.repositories.AgentRepository`，
-本模块只负责注册表语义：重名冲突、不存在报错。
-
-.. note::
-
-   Agent 定义整体序列化成 JSON 存 ``payload`` 列，而不是逐字段建列 ——
-   Agent 还在快速演进（工具、记忆、规划都会往上挂），
-   JSON 列免去每加一个字段就改表结构。
-"""
+"""把 Agent 定义按 Workspace 持久化到 SQLite。"""
 
 from __future__ import annotations
 
@@ -19,14 +6,16 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agentos.core.context import get_workspace_id
 from agentos.core.exceptions import ConflictError, NotFoundError
+from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.runtime.agent import Agent
 from agentos.runtime.repositories import AGENTS_SCHEMA, AgentRepository
 
 
 class SQLiteAgentRegistry:
-    """基于 SQLite 的 Agent 注册表。"""
+    """SQLite-backed Agent registry with Workspace isolation."""
 
     def __init__(self, db_path: str, agents: Iterable[Agent] | None = None) -> None:
         self.path = Path(db_path).expanduser()
@@ -40,44 +29,64 @@ class SQLiteAgentRegistry:
         """Expose the persistence repository for platform services."""
         return self._repo
 
-    def register(self, agent: Agent, *, overwrite: bool = False) -> Agent:
-        """注册 Agent；重名时默认抛 :class:`ConflictError`。"""
-        if self._repo.exists(agent.name):
+    @staticmethod
+    def _scope(workspace_id: int | None) -> int:
+        return workspace_id or get_workspace_id() or DEFAULT_WORKSPACE_ID
+
+    def register(
+        self,
+        agent: Agent,
+        *,
+        overwrite: bool = False,
+        workspace_id: int | None = None,
+    ) -> Agent:
+        scope = self._scope(workspace_id)
+        if self._repo.exists(agent.name, workspace_id=scope):
             if not overwrite:
                 raise ConflictError(
                     f"agent already registered: {agent.name}",
-                    details={"agent": agent.name},
+                    details={"agent": agent.name, "workspace_id": scope},
                 )
-            self._repo.replace(agent, updated_at=datetime.now(UTC))
+            self._repo.replace(
+                agent, updated_at=datetime.now(UTC), workspace_id=scope
+            )
         else:
-            self._repo.add(agent, created_at=datetime.now(UTC))
+            self._repo.add(agent, created_at=datetime.now(UTC), workspace_id=scope)
         return agent
 
-    def unregister(self, name: str) -> None:
-        """注销 Agent，不存在时报错。"""
-        if not self._repo.remove(name):
-            raise NotFoundError(f"agent not found: {name}", details={"agent": name})
+    def unregister(self, name: str, *, workspace_id: int | None = None) -> None:
+        scope = self._scope(workspace_id)
+        if not self._repo.remove(name, workspace_id=scope):
+            raise NotFoundError(
+                f"agent not found: {name}",
+                details={"agent": name, "workspace_id": scope},
+            )
 
-    def delete(self, name: str) -> None:
+    def delete(self, name: str, *, workspace_id: int | None = None) -> None:
         """Delete an Agent; ``unregister`` remains a compatibility alias."""
-        self.unregister(name)
+        self.unregister(name, workspace_id=workspace_id)
 
-    def get(self, name: str) -> Agent:
-        """按名称获取 Agent。"""
-        agent = self._repo.get(name)
+    def get(self, name: str, *, workspace_id: int | None = None) -> Agent:
+        scope = self._scope(workspace_id)
+        agent = self._repo.get(name, workspace_id=scope)
         if agent is None:
             raise NotFoundError(
                 f"agent not found: {name}",
-                details={"agent": name, "available": self._repo.names()},
+                details={
+                    "agent": name,
+                    "workspace_id": scope,
+                    "available": self._repo.names(workspace_id=scope),
+                },
             )
         return agent
 
-    def list(self) -> list[Agent]:
-        """返回全部 Agent（按名称排序）。"""
-        return self._repo.list()
+    def list(self, *, workspace_id: int | None = None) -> list[Agent]:
+        return self._repo.list(workspace_id=self._scope(workspace_id))
 
     def __contains__(self, name: object) -> bool:
-        return isinstance(name, str) and self._repo.exists(name)
+        return isinstance(name, str) and self._repo.exists(
+            name, workspace_id=self._scope(None)
+        )
 
     def __len__(self) -> int:
-        return self._repo.count()
+        return self._repo.count(workspace_id=self._scope(None))

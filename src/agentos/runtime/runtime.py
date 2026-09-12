@@ -20,6 +20,8 @@ from pydantic import BaseModel
 
 from agentos.core.config import RuntimeSettings
 from agentos.core.context import (
+    get_user_id,
+    get_workspace_id,
     new_id,
     reset_agent_name,
     reset_run_id,
@@ -28,6 +30,7 @@ from agentos.core.context import (
 )
 from agentos.core.exceptions import AgentRuntimeError, ValidationError
 from agentos.core.logging import get_logger
+from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.llm.base import (
     CompletionOptions,
     LLMClient,
@@ -64,6 +67,8 @@ class RunResult(BaseModel):
     """一次 Agent 运行的完整结果。"""
 
     run_id: str
+    workspace_id: int = DEFAULT_WORKSPACE_ID
+    user_id: int | None = None
     agent: str
     output: str
     messages: list[Message]
@@ -365,6 +370,8 @@ class AgentRuntime:
             duration_ms = (time.perf_counter() - started_at) * 1000
             result = RunResult(
                 run_id=run_id,
+                workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
+                user_id=get_user_id(),
                 agent=resolved.name,
                 output=response.content,
                 messages=messages,
@@ -430,6 +437,8 @@ class AgentRuntime:
                 self._runs.record_failure(
                     run_id=run_id,
                     agent=resolved.name,
+                    workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
+                    user_id=get_user_id(),
                     input_text=input_text,
                     error=str(exc),
                     session_id=resolved_session,
