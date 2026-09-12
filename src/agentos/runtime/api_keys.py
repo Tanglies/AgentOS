@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from agentos.core.config import ApiKeySettings
 from agentos.core.exceptions import ConflictError, NotFoundError, ValidationError
+from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.runtime.repositories import (
     API_KEYS_SCHEMA,
@@ -67,6 +68,10 @@ class Permission(StrEnum):
     EVALUATION_READ = "evaluation:read"
     DASHBOARD_READ = "dashboard:read"
     AUDIT_READ = "audit:read"
+    USER_READ = "user:read"
+    USER_WRITE = "user:write"
+    WORKSPACE_READ = "workspace:read"
+    WORKSPACE_WRITE = "workspace:write"
     API_KEY_ADMIN = "apikey:admin"
 
     #: 通配，拥有全部权限（静态配置密钥即属此类）
@@ -88,6 +93,10 @@ DEFAULT_PERMISSIONS: tuple[str, ...] = (
     Permission.EVALUATION_READ.value,
     Permission.DASHBOARD_READ.value,
     Permission.AUDIT_READ.value,
+    Permission.USER_READ.value,
+    Permission.USER_WRITE.value,
+    Permission.WORKSPACE_READ.value,
+    Permission.WORKSPACE_WRITE.value,
 )
 
 
@@ -100,6 +109,8 @@ class ApiKeyIdentity(BaseModel):
     """一次请求的调用方身份。"""
 
     name: str
+    user_id: int = DEFAULT_USER_ID
+    workspace_id: int = DEFAULT_WORKSPACE_ID
     permissions: frozenset[str] = Field(default_factory=frozenset)
     source: Literal["database", "config"] = "database"
 
@@ -142,6 +153,8 @@ class ApiKeyStore:
         self,
         name: str,
         *,
+        user_id: int = DEFAULT_USER_ID,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
         permissions: list[str] | None = None,
     ) -> ApiKeyIssueResult:
         """签发一把新密钥，返回明文（仅此一次）。"""
@@ -160,15 +173,21 @@ class ApiKeyStore:
         record = ApiKeyRecord(
             key_hash=hash_key(raw_key),
             name=cleaned,
+            user_id=user_id,
+            workspace_id=workspace_id,
             permissions=resolved,
             created_at=datetime.now(UTC),
         )
         saved = self._repo.add(record)
         return ApiKeyIssueResult(key=raw_key, record=saved)
 
-    def revoke(self, key_id: int) -> ApiKeyRecord:
+    def revoke(self, key_id: int, *, workspace_id: int | None = None) -> ApiKeyRecord:
         """吊销密钥（软删除）。"""
-        if not self._repo.revoke(key_id, revoked_at=datetime.now(UTC)):
+        if not self._repo.revoke(
+            key_id,
+            revoked_at=datetime.now(UTC),
+            workspace_id=workspace_id,
+        ):
             raise NotFoundError(
                 f"api key not found or already revoked: {key_id}",
                 details={"key_id": key_id},
@@ -178,13 +197,26 @@ class ApiKeyStore:
             raise NotFoundError(f"api key not found: {key_id}", details={"key_id": key_id})
         return record
 
-    def list(self, *, include_revoked: bool = False) -> list[ApiKeyRecord]:
+    def list(
+        self,
+        *,
+        include_revoked: bool = False,
+        workspace_id: int | None = None,
+    ) -> list[ApiKeyRecord]:
         """列出密钥记录（不含明文与哈希）。"""
-        return self._repo.list(include_revoked=include_revoked)
+        return self._repo.list(
+            include_revoked=include_revoked,
+            workspace_id=workspace_id,
+        )
 
-    def count(self, *, include_revoked: bool = False) -> int:
+    def count(
+        self, *, include_revoked: bool = False, workspace_id: int | None = None
+    ) -> int:
         """密钥数量。"""
-        return self._repo.count(include_revoked=include_revoked)
+        return self._repo.count(
+            include_revoked=include_revoked,
+            workspace_id=workspace_id,
+        )
 
     # --- 校验 ---------------------------------------------------------
 
@@ -200,6 +232,8 @@ class ApiKeyStore:
         self._touch(digest)
         return ApiKeyIdentity(
             name=record.name,
+            user_id=record.user_id,
+            workspace_id=record.workspace_id,
             permissions=frozenset(record.permissions),
             source="database",
         )

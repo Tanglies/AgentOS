@@ -11,6 +11,8 @@ from agentos.api.routes import (
     runs,
     sessions,
     tools,
+    users,
+    workspaces,
 )
 
 __all__ = [
@@ -24,4 +26,6 @@ __all__ = [
     "runs",
     "sessions",
     "tools",
+    "users",
+    "workspaces",
 ]

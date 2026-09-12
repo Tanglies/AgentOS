@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.database.models import AgentRecord
 from agentos.database.repository import Repository
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key_hash TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL UNIQUE,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
     permissions TEXT NOT NULL,
     created_at TEXT NOT NULL,
     last_used_at TEXT,
@@ -145,6 +148,8 @@ class ApiKeyRecord(BaseModel):
     id: int | None = None
     key_hash: str
     name: str
+    user_id: int = DEFAULT_USER_ID
+    workspace_id: int = DEFAULT_WORKSPACE_ID
     permissions: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_used_at: datetime | None = None
@@ -825,6 +830,17 @@ class ApiKeyRepository(Repository):
 
     def __init__(self, database: Database) -> None:
         self._db = database
+        self._db.ensure_columns(
+            "api_keys",
+            {
+                "user_id": "INTEGER NOT NULL DEFAULT 1",
+                "workspace_id": "INTEGER NOT NULL DEFAULT 1",
+            },
+            backfill=(
+                "UPDATE api_keys SET user_id = 1 WHERE user_id IS NULL; "
+                "UPDATE api_keys SET workspace_id = 1 WHERE workspace_id IS NULL"
+            ),
+        )
 
     @staticmethod
     def _to_record(row: Any) -> ApiKeyRecord:
@@ -832,6 +848,8 @@ class ApiKeyRepository(Repository):
             id=int(row["id"]),
             key_hash=str(row["key_hash"]),
             name=str(row["name"]),
+            user_id=int(row["user_id"] or DEFAULT_USER_ID),
+            workspace_id=int(row["workspace_id"] or DEFAULT_WORKSPACE_ID),
             permissions=list(json.loads(str(row["permissions"]))),
             created_at=datetime.fromisoformat(str(row["created_at"])),
             last_used_at=(
@@ -850,11 +868,14 @@ class ApiKeyRepository(Repository):
         with self._db.connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO api_keys "
-                "(key_hash, name, permissions, created_at, last_used_at, revoked_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(key_hash, name, user_id, workspace_id, permissions, "
+                " created_at, last_used_at, revoked_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     record.key_hash,
                     record.name,
+                    record.user_id,
+                    record.workspace_id,
                     json.dumps(record.permissions, ensure_ascii=False),
                     record.created_at.isoformat(),
                     record.last_used_at.isoformat() if record.last_used_at else None,
@@ -877,9 +898,23 @@ class ApiKeyRepository(Repository):
         row = self._db.query_one("SELECT * FROM api_keys WHERE name = ?", (name,))
         return self._to_record(row) if row is not None else None
 
-    def list(self, *, include_revoked: bool = False) -> list[ApiKeyRecord]:
-        where = "" if include_revoked else "WHERE revoked_at IS NULL"
-        rows = self._db.query(f"SELECT * FROM api_keys {where} ORDER BY id")
+    def list(
+        self,
+        *,
+        include_revoked: bool = False,
+        workspace_id: int | None = None,
+    ) -> list[ApiKeyRecord]:
+        clauses = []
+        params: list[Any] = []
+        if not include_revoked:
+            clauses.append("revoked_at IS NULL")
+        if workspace_id is not None:
+            clauses.append("workspace_id = ?")
+            params.append(workspace_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._db.query(
+            f"SELECT * FROM api_keys {where} ORDER BY id", params
+        )
         return [self._to_record(row) for row in rows]
 
     def touch(self, key_hash: str, *, used_at: datetime) -> None:
@@ -889,17 +924,35 @@ class ApiKeyRepository(Repository):
             (used_at.isoformat(), key_hash),
         )
 
-    def revoke(self, key_id: int, *, revoked_at: datetime) -> bool:
+    def revoke(
+        self,
+        key_id: int,
+        *,
+        revoked_at: datetime,
+        workspace_id: int | None = None,
+    ) -> bool:
         """吊销密钥（软删除，保留审计线索）。"""
-        return (
-            self._db.execute(
-                "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
-                (revoked_at.isoformat(), key_id),
-            )
-            > 0
-        )
+        where = "id = ? AND revoked_at IS NULL"
+        params: list[Any] = [revoked_at.isoformat(), key_id]
+        if workspace_id is not None:
+            where += " AND workspace_id = ?"
+            params.append(workspace_id)
+        return self._db.execute(
+            f"UPDATE api_keys SET revoked_at = ? WHERE {where}", params
+        ) > 0
 
-    def count(self, *, include_revoked: bool = False) -> int:
-        where = "" if include_revoked else "WHERE revoked_at IS NULL"
-        row = self._db.query_one(f"SELECT COUNT(*) AS total FROM api_keys {where}")
+    def count(
+        self, *, include_revoked: bool = False, workspace_id: int | None = None
+    ) -> int:
+        clauses = []
+        params: list[Any] = []
+        if not include_revoked:
+            clauses.append("revoked_at IS NULL")
+        if workspace_id is not None:
+            clauses.append("workspace_id = ?")
+            params.append(workspace_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        row = self._db.query_one(
+            f"SELECT COUNT(*) AS total FROM api_keys {where}", params
+        )
         return int(row["total"]) if row is not None else 0

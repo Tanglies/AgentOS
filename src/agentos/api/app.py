@@ -33,6 +33,8 @@ from agentos.api.routes import (
     runs,
     sessions,
     tools,
+    users,
+    workspaces,
 )
 from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
@@ -43,10 +45,13 @@ from agentos.runtime.audit import AuditLog
 from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
+from agentos.runtime.platform_store import PlatformStore
 from agentos.runtime.run_store import RunStore
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.user_service import UserService
+from agentos.runtime.services.workspace_service import WorkspaceService
 
 logger = get_logger(__name__)
 
@@ -61,6 +66,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        platform_store = PlatformStore(resolved.platform)
+        user_service = UserService(platform_store.users)
+        workspace_service = WorkspaceService(
+            platform_store.workspaces,
+            platform_store.members,
+            users=user_service,
+        )
         llm_client = create_llm_client(resolved.llm)
         memory = MemoryStore(resolved.memory)
         long_term = (
@@ -82,6 +94,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             audit=audit_log,
         )
         app.state.llm_client = llm_client
+        app.state.platform_store = platform_store
+        app.state.user_service = user_service
+        app.state.workspace_service = workspace_service
         app.state.runtime = runtime
         app.state.audit_log = audit_log
         app.state.agent_service = AgentService(runtime.registry, audit=audit_log)
@@ -147,6 +162,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(agents.router, prefix=API_PREFIX)
+    app.include_router(users.router, prefix=API_PREFIX)
+    app.include_router(workspaces.router, prefix=API_PREFIX)
     app.include_router(apikeys.router, prefix=API_PREFIX)
     app.include_router(runs.router, prefix=API_PREFIX)
     app.include_router(tools.router, prefix=API_PREFIX)

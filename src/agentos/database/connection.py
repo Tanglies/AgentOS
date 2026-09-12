@@ -94,7 +94,7 @@ class Database:
                         f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
                     )
             if backfill:
-                connection.execute(backfill)
+                connection.executescript(backfill)
 
     def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
         """Execute a write statement and return the affected row count."""

@@ -14,6 +14,13 @@ from agentos.runtime.long_term_memory import MemoryRecord
 from agentos.runtime.memory import SessionState
 from agentos.runtime.message import Message
 from agentos.runtime.planning import ExecutionPlan
+from agentos.runtime.platform_repositories import (
+    UserRecord,
+    UserStatus,
+    WorkspaceMemberRecord,
+    WorkspaceRecord,
+    WorkspaceRole,
+)
 from agentos.runtime.repositories import ApiKeyRecord
 from agentos.runtime.run_store import RunRecord
 from agentos.runtime.runtime import RunResult
@@ -328,6 +335,8 @@ class ApiKeyCreateRequest(BaseModel):
     """签发 API Key 的请求体。"""
 
     name: str = Field(min_length=1, max_length=64)
+    user_id: int | None = Field(default=None, gt=0)
+    workspace_id: int | None = Field(default=None, gt=0)
     permissions: list[str] | None = Field(default=None, max_length=32)
 
 
@@ -336,6 +345,8 @@ class ApiKeySummary(BaseModel):
 
     id: int
     name: str
+    user_id: int = 1
+    workspace_id: int = 1
     permissions: list[str] = Field(default_factory=list)
     created_at: datetime
     last_used_at: datetime | None = None
@@ -348,6 +359,8 @@ class ApiKeySummary(BaseModel):
         return cls(
             id=record.id,
             name=record.name,
+            user_id=record.user_id,
+            workspace_id=record.workspace_id,
             permissions=list(record.permissions),
             created_at=record.created_at,
             last_used_at=record.last_used_at,
@@ -387,3 +400,124 @@ class DashboardErrorItem(BaseModel):
     error: str = ""
     duration_ms: float = 0.0
     created_at: datetime
+
+
+class UserCreateRequest(BaseModel):
+    """Create a platform user."""
+
+    username: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(default="", max_length=128)
+    status: UserStatus = UserStatus.ACTIVE
+
+
+class UserSummary(BaseModel):
+    """Platform user response."""
+
+    id: int
+    username: str
+    display_name: str = ""
+    status: UserStatus
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_record(cls, record: UserRecord) -> UserSummary:
+        if record.id is None:  # pragma: no cover
+            raise ValueError("user record has no id")
+        return cls(**record.model_dump())
+
+
+class UserListResponse(BaseModel):
+    """Paginated user list."""
+
+    items: list[UserSummary]
+    total: int
+    page: int = 1
+    page_size: int = 100
+
+
+class WorkspaceCreateRequest(BaseModel):
+    """Create a Workspace owned by the current user."""
+
+    name: str = Field(min_length=1, max_length=128)
+
+
+class WorkspaceUpdateRequest(BaseModel):
+    """Update Workspace metadata."""
+
+    name: str = Field(min_length=1, max_length=128)
+
+
+class WorkspaceSummary(BaseModel):
+    """Workspace response."""
+
+    id: int
+    name: str
+    owner_id: int
+    role: WorkspaceRole | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, record: WorkspaceRecord, *, role: WorkspaceRole | None = None
+    ) -> WorkspaceSummary:
+        if record.id is None:  # pragma: no cover
+            raise ValueError("workspace record has no id")
+        return cls(
+            id=record.id,
+            name=record.name,
+            owner_id=record.owner_id,
+            role=role,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+
+class WorkspaceListResponse(BaseModel):
+    """Workspace list visible to the current user."""
+
+    items: list[WorkspaceSummary]
+    total: int
+
+
+class WorkspaceMemberAddRequest(BaseModel):
+    """Add a user to a Workspace."""
+
+    user_id: int = Field(gt=0)
+    role: WorkspaceRole = WorkspaceRole.MEMBER
+
+
+class WorkspaceMemberSummary(BaseModel):
+    """Workspace membership response."""
+
+    workspace_id: int
+    user_id: int
+    username: str = ""
+    display_name: str = ""
+    role: WorkspaceRole
+    created_at: datetime
+
+    @classmethod
+    def from_record(
+        cls,
+        record: WorkspaceMemberRecord,
+        *,
+        username: str = "",
+        display_name: str = "",
+    ) -> WorkspaceMemberSummary:
+        return cls(
+            workspace_id=record.workspace_id,
+            user_id=record.user_id,
+            username=username,
+            display_name=display_name,
+            role=record.role,
+            created_at=record.created_at,
+        )
+
+
+class WorkspaceMemberListResponse(BaseModel):
+    """Workspace membership list."""
+
+    items: list[WorkspaceMemberSummary]
+    total: int

@@ -118,9 +118,21 @@ class WorkspaceService:
         self._members.remove_workspace(workspace_id)
         self._workspaces.delete(workspace_id)
 
-    def list_members(self, workspace_id: int, user_id: int) -> list[WorkspaceMemberRecord]:
+    def role(self, workspace_id: int, user_id: int):
+        """Return the current user's role in a Workspace."""
+        return self._membership(workspace_id, user_id).role
+
+    def _user_record(self, user_id: int):
+        if self._users is None:
+            return None
+        user = self._users.get(user_id) if hasattr(self._users, "get") else None
+        return user
+
+    def list_members(self, workspace_id: int, user_id: int):
+        """Return memberships enriched with user display metadata."""
         self._membership(workspace_id, user_id)
-        return self._members.list(workspace_id)
+        records = self._members.list(workspace_id)
+        return [(record, self._user_record(record.user_id)) for record in records]
 
     def add_member(
         self,

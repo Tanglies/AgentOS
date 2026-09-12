@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, Response, status
 
+from agentos.api.auth import get_current_identity
 from agentos.api.deps import ApiKeyStoreDep, require
 from agentos.api.schemas import (
     ApiKeyCreateRequest,
@@ -15,6 +16,7 @@ from agentos.api.schemas import (
     ApiKeyListResponse,
     ApiKeySummary,
 )
+from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.runtime.api_keys import Permission
 
 router = APIRouter(
@@ -30,7 +32,11 @@ async def list_api_keys(
     include_revoked: bool = Query(default=False, description="是否包含已吊销记录"),
 ) -> ApiKeyListResponse:
     """返回密钥元数据，不包含明文与哈希。"""
-    records = store.list(include_revoked=include_revoked)
+    identity = get_current_identity()
+    workspace_id = identity.workspace_id if identity else DEFAULT_WORKSPACE_ID
+    records = store.list(
+        include_revoked=include_revoked, workspace_id=workspace_id
+    )
     return ApiKeyListResponse(
         items=[ApiKeySummary.from_record(record) for record in records],
         total=len(records),
@@ -47,7 +53,18 @@ async def create_api_key(
     payload: ApiKeyCreateRequest, store: ApiKeyStoreDep
 ) -> ApiKeyCreateResponse:
     """签发新密钥；明文仅在本次响应返回，服务端只保存 SHA-256 哈希。"""
-    result = store.issue(payload.name, permissions=payload.permissions)
+    identity = get_current_identity()
+    user_id = identity.user_id if identity else DEFAULT_USER_ID
+    workspace_id = identity.workspace_id if identity else DEFAULT_WORKSPACE_ID
+    if identity is not None and identity.source == "config":
+        user_id = payload.user_id or user_id
+        workspace_id = payload.workspace_id or workspace_id
+    result = store.issue(
+        payload.name,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        permissions=payload.permissions,
+    )
     summary = ApiKeySummary.from_record(result.record)
     return ApiKeyCreateResponse(**summary.model_dump(), key=result.key)
 
@@ -59,5 +76,7 @@ async def create_api_key(
 )
 async def revoke_api_key(key_id: int, store: ApiKeyStoreDep) -> Response:
     """软删除密钥，保留记录用于审计。"""
-    store.revoke(key_id)
+    identity = get_current_identity()
+    workspace_id = identity.workspace_id if identity else DEFAULT_WORKSPACE_ID
+    store.revoke(key_id, workspace_id=workspace_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -28,6 +28,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from agentos.core.config import AuthSettings
 from agentos.core.context import bind
 from agentos.core.logging import get_logger
+from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.runtime.api_keys import ApiKeyIdentity, ApiKeyStore, Permission
 from agentos.runtime.tools import tool_permission_scope
 
@@ -100,7 +101,11 @@ class APIKeyMiddleware:
             token = _identity.set(identity)
             try:
                 # 把调用方身份绑进上下文，下游日志与审计都会带上它
-                with bind(actor=identity.name), tool_permission_scope(
+                with bind(
+                    actor=identity.name,
+                    user_id=identity.user_id,
+                    workspace_id=identity.workspace_id,
+                ), tool_permission_scope(
                     lambda permission: identity.can(Permission(permission))
                 ):
                     await self.app(scope, receive, send)
@@ -125,6 +130,8 @@ class APIKeyMiddleware:
             if secrets.compare_digest(candidate, key):
                 return ApiKeyIdentity(
                     name=f"config-{fingerprint(key.decode('utf-8'))}",
+                    user_id=DEFAULT_USER_ID,
+                    workspace_id=DEFAULT_WORKSPACE_ID,
                     permissions=frozenset({Permission.ALL.value}),
                     source="config",
                 )

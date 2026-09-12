@@ -9,7 +9,9 @@
 | ``run_id`` | 一次 Agent 运行 | AgentRuntime |
 | ``agent_name`` | 当前 Agent | AgentRuntime |
 | ``tool_name`` | 当前正在执行的工具 | ToolRegistry |
-| ``actor`` | 调用方标识（密钥指纹） | 认证中间件 |
+| ``actor`` | 调用方标识（密钥名称或静态指纹） | 认证中间件 |
+| ``user_id`` | 当前用户 | 认证中间件 |
+| ``workspace_id`` | 当前 Workspace | 认证中间件 |
 
 日志系统会自动读取这些字段并附加到每条日志上，因此一次调用
 「HTTP → Runtime → LLM → Tool → Database」的完整链路可以靠
@@ -25,6 +27,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from typing import Any
 
 _REQUEST_ID: ContextVar[str | None] = ContextVar("agentos_request_id", default=None)
 _TRACE_ID: ContextVar[str | None] = ContextVar("agentos_trace_id", default=None)
@@ -32,14 +35,18 @@ _RUN_ID: ContextVar[str | None] = ContextVar("agentos_run_id", default=None)
 _AGENT_NAME: ContextVar[str | None] = ContextVar("agentos_agent_name", default=None)
 _TOOL_NAME: ContextVar[str | None] = ContextVar("agentos_tool_name", default=None)
 _ACTOR: ContextVar[str | None] = ContextVar("agentos_actor", default=None)
+_USER_ID: ContextVar[int | None] = ContextVar("agentos_user_id", default=None)
+_WORKSPACE_ID: ContextVar[int | None] = ContextVar("agentos_workspace_id", default=None)
 
-_FIELDS: dict[str, ContextVar[str | None]] = {
+_FIELDS: dict[str, ContextVar[Any | None]] = {
     "trace_id": _TRACE_ID,
     "request_id": _REQUEST_ID,
     "run_id": _RUN_ID,
     "agent_name": _AGENT_NAME,
     "tool_name": _TOOL_NAME,
     "actor": _ACTOR,
+    "user_id": _USER_ID,
+    "workspace_id": _WORKSPACE_ID,
 }
 
 
@@ -48,15 +55,15 @@ def new_id(prefix: str = "") -> str:
     return f"{prefix}{uuid.uuid4().hex[:16]}"
 
 
-def _get(field: str) -> str | None:
+def _get(field: str) -> Any | None:
     return _FIELDS[field].get()
 
 
-def _set(field: str, value: str | None) -> Token[str | None]:
+def _set(field: str, value: Any | None) -> Token[Any | None]:
     return _FIELDS[field].set(value)
 
 
-def _reset(field: str, token: Token[str | None]) -> None:
+def _reset(field: str, token: Token[Any | None]) -> None:
     _FIELDS[field].reset(token)
 
 
@@ -132,13 +139,41 @@ def reset_actor(token: Token[str | None]) -> None:
     _reset("actor", token)
 
 
-def current_context() -> dict[str, str]:
+
+
+def get_user_id() -> int | None:
+    """Return the authenticated platform user id."""
+    return _USER_ID.get()
+
+
+def set_user_id(value: int | None) -> Token[int | None]:
+    return _USER_ID.set(value)
+
+
+def reset_user_id(token: Token[int | None]) -> None:
+    _USER_ID.reset(token)
+
+
+def get_workspace_id() -> int | None:
+    """Return the authenticated Workspace id."""
+    return _WORKSPACE_ID.get()
+
+
+def set_workspace_id(value: int | None) -> Token[int | None]:
+    return _WORKSPACE_ID.set(value)
+
+
+def reset_workspace_id(token: Token[int | None]) -> None:
+    _WORKSPACE_ID.reset(token)
+
+
+def current_context() -> dict[str, Any]:
     """返回当前上下文中的非空字段。"""
     return {key: value for key, value in ((k, v.get()) for k, v in _FIELDS.items()) if value}
 
 
 @contextmanager
-def bind(**fields: str | None) -> Iterator[dict[str, str]]:
+def bind(**fields: Any | None) -> Iterator[dict[str, Any]]:
     """临时绑定若干上下文字段，退出时按相反顺序还原。
 
     用法::
@@ -153,7 +188,7 @@ def bind(**fields: str | None) -> Iterator[dict[str, str]]:
     if unknown:
         raise ValueError(f"unknown context field(s): {', '.join(sorted(unknown))}")
 
-    tokens: list[tuple[ContextVar[str | None], Token[str | None]]] = []
+    tokens: list[tuple[ContextVar[Any | None], Token[Any | None]]] = []
     for key, value in fields.items():
         tokens.append((_FIELDS[key], _FIELDS[key].set(value)))
     try:

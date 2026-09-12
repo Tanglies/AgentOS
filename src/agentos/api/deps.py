@@ -14,6 +14,8 @@ from agentos.runtime.api_keys import ApiKeyStore, Permission
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.user_service import UserService
+from agentos.runtime.services.workspace_service import WorkspaceService
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -37,6 +39,28 @@ def get_agent_service(request: Request) -> AgentService:
     if service is None:
         raise PermissionDeniedError(
             "agent service is not initialized",
+            details={"hint": "create the application through create_app lifespan"},
+        )
+    return service
+
+
+def get_user_service(request: Request) -> UserService:
+    """Return the platform user service."""
+    service = getattr(request.app.state, "user_service", None)
+    if service is None:
+        raise PermissionDeniedError(
+            "user service is not initialized",
+            details={"hint": "create the application through create_app lifespan"},
+        )
+    return service
+
+
+def get_workspace_service(request: Request) -> WorkspaceService:
+    """Return the Workspace lifecycle service."""
+    service = getattr(request.app.state, "workspace_service", None)
+    if service is None:
+        raise PermissionDeniedError(
+            "workspace service is not initialized",
             details={"hint": "create the application through create_app lifespan"},
         )
     return service
@@ -91,4 +115,6 @@ RuntimeDep = Annotated[AgentRuntime, Depends(get_runtime)]
 LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 DashboardServiceDep = Annotated[DashboardService, Depends(get_dashboard_service)]
+UserServiceDep = Annotated[UserService, Depends(get_user_service)]
+WorkspaceServiceDep = Annotated[WorkspaceService, Depends(get_workspace_service)]
 ApiKeyStoreDep = Annotated[ApiKeyStore, Depends(get_api_key_store)]
