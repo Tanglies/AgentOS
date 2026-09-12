@@ -2,55 +2,116 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "AgentOS: 启动服务 (端口 8000)",
-      "detail": "启动 FastAPI 服务，使用 .env 中的模型配置；访问 http://127.0.0.1:8000/docs",
+      "label": "AgentOS: 启动服务（端口 8000）",
+      "detail": "启动 FastAPI 服务，读取 .env 配置；访问 http://127.0.0.1:8000/docs",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "agentos", "serve", "--port", "8000"],
+      "args": ["-m", "agentos", "serve", "--host", "127.0.0.1", "--port", "8000"],
       "options": {
         "cwd": "${workspaceFolder}",
-        "env": { "PYTHONIOENCODING": "utf-8" }
+        "env": {
+          "PYTHONIOENCODING": "utf-8",
+          "PYTHONUTF8": "1"
+        }
       },
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
       "problemMatcher": [],
-      "group": { "kind": "build", "isDefault": true }
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
     },
     {
       "label": "AgentOS: 启动服务（热重载）",
-      "detail": "开发模式，改动代码自动重启",
+      "detail": "开发模式，修改 Python 代码后自动重启；端口 8000",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "agentos", "serve", "--port", "8000", "--reload"],
+      "args": ["-m", "agentos", "serve", "--host", "127.0.0.1", "--port", "8000", "--reload"],
       "options": {
         "cwd": "${workspaceFolder}",
-        "env": { "PYTHONIOENCODING": "utf-8" }
+        "env": {
+          "PYTHONIOENCODING": "utf-8",
+          "PYTHONUTF8": "1"
+        }
       },
-      "presentation": { "reveal": "always", "panel": "dedicated" },
-      "problemMatcher": []
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AgentOS: 启动服务（认证模式）",
+      "detail": "使用本地测试 API Key：sk-local-test",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "agentos", "serve", "--host", "127.0.0.1", "--port", "8000"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONIOENCODING": "utf-8",
+          "PYTHONUTF8": "1",
+          "AGENTOS_AUTH__ENABLED": "true",
+          "AGENTOS_AUTH__API_KEYS": "[\"sk-local-test\"]"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "instanceLimit": 1
+      }
     },
     {
       "label": "AgentOS: 真实模型冒烟测试",
-      "detail": "用 .env 配置的真实模型跑 3 条提示词，打印耗时与 token 消耗",
+      "detail": "使用 .env 配置的真实模型执行冒烟测试，会消耗 token",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["examples\\qwen_smoke.py"],
       "options": {
         "cwd": "${workspaceFolder}",
-        "env": { "PYTHONIOENCODING": "utf-8" }
+        "env": {
+          "PYTHONIOENCODING": "utf-8",
+          "PYTHONUTF8": "1"
+        }
       },
-      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
       "problemMatcher": []
     },
     {
       "label": "AgentOS: 运行测试",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "pytest", "-v"],
+      "args": ["-m", "pytest", "-q"],
       "options": {
         "cwd": "${workspaceFolder}",
-        "env": { "PYTHONIOENCODING": "utf-8" }
+        "env": {
+          "PYTHONIOENCODING": "utf-8",
+          "PYTHONUTF8": "1"
+        }
       },
-      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
       "problemMatcher": [],
       "group": "test"
     },
@@ -59,17 +120,33 @@
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["-m", "ruff", "check", "."],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONIOENCODING": "utf-8",
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
       "problemMatcher": []
     },
     {
       "label": "AgentOS: 安装依赖",
+      "detail": "在现有 .venv 中安装 AgentOS 与开发依赖",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["-m", "pip", "install", "-e", ".[dev]"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": { "reveal": "always", "panel": "shared" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
       "problemMatcher": []
     }
   ]
