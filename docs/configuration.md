@@ -57,6 +57,31 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 | `AGENTOS_RUNTIME__MAX_ITERATIONS` | `8` | 单次运行的最大迭代轮数（1-64），超出抛 `AgentRuntimeError` |
 | `AGENTOS_RUNTIME__SYSTEM_PROMPT` | `You are AgentOS, a helpful AI agent.` | 默认助手的系统提示词 |
 
+### 认证（`auth`）
+
+API Key 认证。**默认关闭**以方便本地开发；对外暴露前必须开启。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_AUTH__ENABLED` | `false` | 是否开启认证 |
+| `AGENTOS_AUTH__API_KEYS` | `[]` | 合法密钥列表（JSON 数组，支持多密钥轮换） |
+| `AGENTOS_AUTH__HEADER_NAME` | `X-API-Key` | 承载密钥的请求头名 |
+| `AGENTOS_AUTH__PUBLIC_PATHS` | `["/health","/health/ready","/docs","/redoc","/openapi.json"]` | 免认证路径 |
+
+行为要点：
+
+- **失败关闭**：开启但未配置任何密钥时，**拒绝所有请求**，而不是退化成不校验
+- **常量时间比较**：用 `secrets.compare_digest` 避免通过响应时间反推密钥
+- **OPTIONS 放行**：CORS 预检不携带自定义请求头，必须放行否则浏览器侧全部失败
+- **401 也带 request_id**：认证中间件位于请求上下文内层，便于排查
+
+```powershell
+$env:AGENTOS_AUTH__ENABLED = "true"
+$env:AGENTOS_AUTH__API_KEYS = '["sk-your-key-1"]'
+# 之后所有业务请求都要带请求头
+curl.exe http://127.0.0.1:8000/api/v1/agents -H "X-API-Key: sk-your-key-1"
+```
+
 ### 记忆（`memory`）
 
 会话记忆当前是**进程内短期记忆**，且**默认开启**：不传 `session_id` 时落到

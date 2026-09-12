@@ -16,6 +16,13 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **API Key 认证**：补齐最关键的鉴权缺口（此前任何客户端都能读全部会话与记忆）
+  - `api/auth.py`：`APIKeyMiddleware`，纯 ASGI 实现，统一拦截所有 HTTP 请求
+  - **默认关闭**，本地开发不受影响；对外暴露时设置 `AGENTOS_AUTH__ENABLED=true`
+  - **失败关闭**：开启但未配置密钥时拒绝所有请求，配置失误不会变成安全漏洞
+  - **常量时间比较**（`secrets.compare_digest`），避免通过响应时间反推密钥
+  - 放行 `OPTIONS` 预检与健康探针 / 文档路径
+  - 中间件顺序调整：CORS → 请求上下文 → 认证 → 路由，401 也带 `request_id` 并进访问日志
 - **Multi-Agent（多 Agent 协作与消息路由）**：
   - 把 Agent 暴露成工具：新增 `delegate_to_agent`，主 Agent 可把子任务交给专门角色
   - `runtime/agent_tools.py`：`DelegateToAgentTool`，工具描述**运行时动态列出可用 Agent**
@@ -115,6 +122,9 @@
 - 委托工具必须在 Runtime 实例化过程中注册（它要引用 Runtime 自身），
   因此默认 Agent 的工具清单改为在委托工具注册**之后**再生成
 - 测试增至 289 个用例，新增 `tests/test_multi_agent.py`（18 个）
+- 认证放在**请求上下文内层**：`add_middleware` 后加的先执行，因此先 add 认证、
+  再 add 请求上下文，401 响应才能带上 request_id 并写入访问日志
+- 测试增至 307 个用例，新增 `tests/test_auth.py`（18 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

@@ -1,6 +1,7 @@
 """核心基础设施：配置、日志、请求上下文与异常体系。"""
 
 from agentos.core.config import (
+    AuthSettings,
     MemorySettings,
     Settings,
     ToolsSettings,
@@ -31,6 +32,7 @@ from agentos.core.logging import configure_logging, get_logger, redact
 
 __all__ = [
     "AgentOSError",
+    "AuthSettings",
     "AgentRuntimeError",
     "ConfigurationError",
     "ConflictError",

@@ -71,6 +71,26 @@ class APISettings(BaseModel):
     cors_origins: tuple[str, ...] = ()
 
 
+class AuthSettings(BaseModel):
+    """API 认证配置。
+
+    默认**关闭**以方便本地开发；一旦对外暴露就必须开启并配置至少一个密钥。
+    开启但没有配置任何密钥时会**拒绝所有请求**（fail closed），
+    而不是退化成不校验 —— 配置失误不应该变成安全漏洞。
+    """
+
+    enabled: bool = False
+    api_keys: tuple[SecretStr, ...] = ()
+    header_name: str = "X-API-Key"
+    public_paths: tuple[str, ...] = (
+        "/health",
+        "/health/ready",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    )
+
+
 class MemorySettings(BaseModel):
     """会话记忆配置。
 
@@ -140,6 +160,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     api: APISettings = Field(default_factory=APISettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
 

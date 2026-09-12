@@ -9,6 +9,7 @@
 | 模块 | 能力 | 状态 |
 | --- | --- | --- |
 | HTTP 服务 | FastAPI 应用、统一错误响应、请求 ID、健康探针、OpenAPI 文档 | ✅ v0.1 |
+| 认证 | API Key 中间件（默认关闭、失败关闭、常量时间比较） | ✅ v0.1 |
 | Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
@@ -167,6 +168,31 @@ registry = ToolRegistry([WeatherTool()])
 
 工具执行失败（工具不存在、参数非法、内部异常）不会中断运行，而是把错误文本回填给模型，
 让模型自行决定是否修正参数或向用户说明。
+
+### 认证（API Key）
+
+默认**关闭**，方便本地开发。对外暴露前务必开启：
+
+```powershell
+$env:AGENTOS_AUTH__ENABLED = "true"
+$env:AGENTOS_AUTH__API_KEYS = '["sk-your-key"]'
+.\\.venv\\Scripts\\python.exe -m agentos serve --port 8000
+```
+
+之后所有业务请求都要携带请求头（健康探针与 `/docs` 免认证）：
+
+```powershell
+curl.exe http://127.0.0.1:8000/api/v1/agents -H "X-API-Key: sk-your-key"
+```
+
+失败时返回统一的错误结构：
+
+```json
+{"error": {"code": "unauthorized", "message": "invalid or missing API key", "details": {"header": "X-API-Key"}}}
+```
+
+> 开启但没配置任何密钥时，服务会**拒绝所有请求**（fail closed）——
+> 配置失误不应该变成安全漏洞。
 
 ### 多 Agent 协作
 

@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from agentos import __version__
+from agentos.api.auth import APIKeyMiddleware
 from agentos.api.middleware import RequestContextMiddleware
 from agentos.api.routes import agents, health, memories, runs, sessions, tools
 from agentos.core.config import Settings, get_settings
@@ -84,6 +85,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.started_at = time.time()
 
+    # 中间件 add 的顺序决定执行顺序：后 add 的在外层。
+    # 期望的执行顺序是 CORS → 请求上下文 → 认证 → 路由，
+    # 这样 401 响应也会带上 request_id 并进入访问日志。
+    if resolved.auth.enabled:
+        app.add_middleware(APIKeyMiddleware, settings=resolved.auth)
     app.add_middleware(RequestContextMiddleware)
     if resolved.api.cors_origins:
         app.add_middleware(
