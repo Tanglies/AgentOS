@@ -459,8 +459,15 @@ class AgentRepository(Repository):
     def names(self) -> list[str]:
         return [str(row["name"]) for row in self._db.query("SELECT name FROM agents ORDER BY name")]
 
-    def list_records(self) -> list[AgentRecord]:
-        rows = self._db.query("SELECT * FROM agents ORDER BY name")
+    def list_records(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> list[AgentRecord]:
+        sql = "SELECT * FROM agents ORDER BY name"
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params = (limit, offset)
+        rows = self._db.query(sql, params)
         return [self._to_record(row) for row in rows]
 
     def list(self) -> list[Agent]:

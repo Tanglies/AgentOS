@@ -58,6 +58,10 @@ class SQLiteAgentRegistry:
         if not self._repo.remove(name):
             raise NotFoundError(f"agent not found: {name}", details={"agent": name})
 
+    def delete(self, name: str) -> None:
+        """Delete an Agent; ``unregister`` remains a compatibility alias."""
+        self.unregister(name)
+
     def get(self, name: str) -> Agent:
         """按名称获取 Agent。"""
         agent = self._repo.get(name)

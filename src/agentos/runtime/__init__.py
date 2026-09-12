@@ -30,6 +30,7 @@ from agentos.runtime.sandbox import (
     SensitiveFileError,
     WorkspaceSandbox,
 )
+from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.sqlite_registry import SQLiteAgentRegistry
 from agentos.runtime.tools import (
     FunctionTool,
@@ -46,6 +47,7 @@ __all__ = [
     "Agent",
     "AgentRegistry",
     "AgentRuntime",
+    "AgentService",
     "CalculateTool",
     "FetchUrlTool",
     "ExecutionPlan",
