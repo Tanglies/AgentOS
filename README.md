@@ -2,7 +2,7 @@
 
 一个企业级大模型 Agent 平台，目标能力：Tool Calling、Memory、Evaluation 与 Observability。
 
-当前版本：**v0.1.0（工程基座）** —— 服务可启动、Runtime 可运行、抽象层与工程规范就位，业务能力持续迭代中。
+当前版本：**v0.1.0（阶段 2 平台能力）** —— Runtime、Tool Calling、Memory、Evaluation、Observability 与平台安全能力已落地，质量评估和部署能力持续迭代。
 
 ## 能力矩阵
 

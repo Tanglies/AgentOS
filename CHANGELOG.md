@@ -27,8 +27,6 @@
   - 新增 `GET/POST /api/v1/api-keys` 与 `DELETE /api/v1/api-keys/{id}`
   - 新增 24 个安全测试，覆盖密钥生命周期、权限边界与工具执行鉴权
 
-### 新增
-
 - **Tool Calling（阶段 1 首项）**：模型可通过工具与外部世界交互，Runtime 自动执行工具并回填结果
   - `runtime/tools.py`：`Tool` 抽象基类、`FunctionTool` 快捷封装、`ToolRegistry` 注册表与执行器
   - 参数校验：按工具声明的 JSON Schema 校验 `required` / `type` / `enum`，未引入额外依赖
@@ -46,7 +44,7 @@
   - 请求中间件生成或透传 `X-Trace-ID`，响应头回显；
     整段请求都在绑定内，访问日志因此也带上 trace_id
   - 工具执行期间绑定 `tool_name`，一次运行调多个工具时日志不再混在一起
-  - 认证中间件在密钥匹配后绑定 `actor`（密钥的 SHA-256 前 12 位，不可反推）
+  - 认证中间件在密钥匹配后绑定 `actor`（当时为密钥指纹，后续升级为数据库密钥名称）
   - 新增 `runtime/audit.py` 与 `audit_logs` 表：记录「谁、什么时候、
     对什么做了什么、结果如何」，四个动作 `agent.run` / `tool.execute` /
     `agent.register` / `agent.unregister`
@@ -54,7 +52,7 @@
   - 新增 `GET /api/v1/audit`，支持按 action / actor / run_id / status 过滤与排序
   - 新增 `docs/observability.md`
 - **数据持久化层重构**：统一 Database + Repository 两层
-  - `core/database.py`：`Database` 统一管理连接、建目录、建表与事务
+  - `database/connection.py`（当时为 `core/database.py`）：`Database` 统一管理连接、建目录、建表与事务
     —— 之前三个存储各写了一份 `mkdir + connect + executescript` 的重复逻辑
   - `runtime/repositories.py`：`AgentRepository` / `RunRepository` / `MemoryRepository`
     把 SQL 与「行 ↔ 模型」的转换从业务对象里搬出来

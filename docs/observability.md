@@ -12,7 +12,7 @@
 | `run_id` | 一次 Agent 运行 | `AgentRuntime` | `run_be04a637...` |
 | `agent_name` | 当前 Agent | `AgentRuntime` | `assistant` |
 | `tool_name` | 正在执行的工具 | `ToolRegistry` | `calculate` |
-| `actor` | 调用方密钥指纹 | 认证中间件 | `0f3a9c2b71d4` |
+| `actor` | 调用方身份（数据库密钥名或静态密钥指纹） | 认证中间件 | `worker` |
 
 ### 链路串联
 
@@ -78,7 +78,7 @@ with bind(run_id="run_x", agent_name="assistant"):
 
 审计记录固定回答四个问题：
 
-- **谁** `actor` —— API Key 指纹；认证关闭时为 `None`（匿名）
+- **谁** `actor` —— 数据库密钥名称；静态密钥为其不可反推指纹；认证关闭时为 `None`（匿名）
 - **什么时候** `created_at`
 - **对什么做了什么** `action` + `target`
 - **结果如何** `status`（`success` / `failure`）
@@ -115,7 +115,7 @@ curl.exe http://127.0.0.1:8000/api/v1/audit
 curl.exe "http://127.0.0.1:8000/api/v1/audit?run_id=run_be04a637bcea48c1"
 
 # 某个密钥做过的操作
-curl.exe "http://127.0.0.1:8000/api/v1/audit?actor=0f3a9c2b71d4"
+curl.exe "http://127.0.0.1:8000/api/v1/audit?actor=worker"
 
 # 只看失败的
 curl.exe "http://127.0.0.1:8000/api/v1/audit?status=failure"
@@ -124,16 +124,16 @@ curl.exe "http://127.0.0.1:8000/api/v1/audit?status=failure"
 curl.exe "http://127.0.0.1:8000/api/v1/audit?order=asc"
 ```
 
-### 密钥指纹
+### 调用方身份
 
-审计记录的是密钥的 **SHA-256 前 12 位**，不是密钥本身：
+数据库密钥使用**可读名称**作为 `actor`；静态配置密钥没有名称，因此使用 SHA-256 前 12 位指纹：
 
 ```python
 def fingerprint(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
 ```
 
-用途是区分"哪把钥匙"，且**不可反推原文**。认证关闭时 `actor` 为空，表示匿名。
+用途是区分调用方，且静态密钥指纹不可反推原文。认证关闭时 `actor` 为空，表示匿名。
 
 ## 配置
 
