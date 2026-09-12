@@ -52,6 +52,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             llm_client,
             settings=resolved.runtime,
             tools=tool_registry,
+            registry_db_path=(
+                resolved.registry.db_path if resolved.registry.persist else None
+            ),
             memory=memory,
             long_term=long_term,
         )

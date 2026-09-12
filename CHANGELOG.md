@@ -16,6 +16,13 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **Agent 持久化**：Agent 定义落盘 SQLite，重启不再丢失
+  - `runtime/sqlite_registry.py`：`SQLiteAgentRegistry`，接口与内存版一致
+  - 存储用 JSON payload 列而非逐字段建列，避免 Agent 模型演进时频繁改表
+  - `runtime/registry.py` 抽出 `build_registry()`，按 `persist_path` 决定实现
+  - 默认 Agent 缺失时补种，已存在的不覆盖（自定义不会被重启冲掉）
+  - 删除同样持久化，避免「删掉的 Agent 重启后复活」
+  - 新增 `RegistrySettings`：`AGENTOS_REGISTRY__PERSIST` / `__DB_PATH`
 - **API Key 认证**：补齐最关键的鉴权缺口（此前任何客户端都能读全部会话与记忆）
   - `api/auth.py`：`APIKeyMiddleware`，纯 ASGI 实现，统一拦截所有 HTTP 请求
   - **默认关闭**，本地开发不受影响；对外暴露时设置 `AGENTOS_AUTH__ENABLED=true`
@@ -125,6 +132,8 @@
 - 认证放在**请求上下文内层**：`add_middleware` 后加的先执行，因此先 add 认证、
   再 add 请求上下文，401 响应才能带上 request_id 并写入访问日志
 - 测试增至 307 个用例，新增 `tests/test_auth.py`（18 个）
+- SQLite 注册表同样显式关闭连接；`with sqlite3.connect(...)` 只管理事务不关连接
+- 测试增至 327 个用例，新增 `tests/test_sqlite_registry.py`（20 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），

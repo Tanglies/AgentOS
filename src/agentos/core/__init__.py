@@ -3,6 +3,7 @@
 from agentos.core.config import (
     AuthSettings,
     MemorySettings,
+    RegistrySettings,
     Settings,
     ToolsSettings,
     get_settings,
@@ -41,6 +42,7 @@ __all__ = [
     "LLMTimeoutError",
     "NotFoundError",
     "MemorySettings",
+    "RegistrySettings",
     "Settings",
     "ToolsSettings",
     "ValidationError",

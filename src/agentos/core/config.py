@@ -71,6 +71,17 @@ class APISettings(BaseModel):
     cors_origins: tuple[str, ...] = ()
 
 
+class RegistrySettings(BaseModel):
+    """Agent 注册表持久化配置。
+
+    默认使用内存实现（进程重启即清空）；开启 ``persist`` 后 Agent 定义
+    落盘到 SQLite，重启不再丢失。
+    """
+
+    persist: bool = False
+    db_path: str = ".agentos/agents.db"
+
+
 class AuthSettings(BaseModel):
     """API 认证配置。
 
@@ -160,6 +171,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     api: APISettings = Field(default_factory=APISettings)
+    registry: RegistrySettings = Field(default_factory=RegistrySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)

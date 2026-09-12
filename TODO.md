@@ -27,7 +27,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 
 ## 阶段 2：平台能力
 
-- [ ] Agent 持久化（注册表切换为数据库实现）
+- [x] Agent 持久化（`SQLiteAgentRegistry`，`AGENTOS_REGISTRY__PERSIST=true` 启用）
 - [ ] 运行记录持久化与历史查询
 - [ ] Tool 管理（注册、分类、权限绑定）
 - [ ] 权限系统（身份认证、配额、工具访问控制）

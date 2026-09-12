@@ -47,7 +47,7 @@ from agentos.runtime.planning import (
     reset_plan,
     set_plan,
 )
-from agentos.runtime.registry import AgentRegistry, create_default_registry
+from agentos.runtime.registry import AgentRegistry, build_registry
 from agentos.runtime.tools import ToolCallResult, ToolRegistry
 
 logger = get_logger(__name__)
@@ -105,6 +105,7 @@ class AgentRuntime:
         tools: ToolRegistry | None = None,
         memory: MemoryStore | None = None,
         long_term: LongTermMemory | None = None,
+        registry_db_path: str | None = None,
         enable_delegation: bool = True,
         max_delegation_depth: int = DEFAULT_MAX_DEPTH,
     ) -> None:
@@ -125,8 +126,10 @@ class AgentRuntime:
         self._registry = (
             registry
             if registry is not None
-            else create_default_registry(
-                self._settings, tools=[tool.name for tool in self._tools.list()]
+            else build_registry(
+                self._settings,
+                tools=[tool.name for tool in self._tools.list()],
+                persist_path=registry_db_path,
             )
         )
 

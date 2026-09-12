@@ -18,13 +18,19 @@ from agentos.runtime.long_term_memory import LongTermMemory, MemoryRecord
 from agentos.runtime.memory import MemoryStore, SessionState
 from agentos.runtime.message import Message, MessageRole, utcnow
 from agentos.runtime.planning import ExecutionPlan, PlanStep, StepStatus, get_plan
-from agentos.runtime.registry import AgentRegistry, create_default_registry
+from agentos.runtime.registry import (
+    AgentRegistry,
+    build_default_agent,
+    build_registry,
+    create_default_registry,
+)
 from agentos.runtime.runtime import AgentRuntime, RunEvent, RunResult
 from agentos.runtime.sandbox import (
     SandboxViolation,
     SensitiveFileError,
     WorkspaceSandbox,
 )
+from agentos.runtime.sqlite_registry import SQLiteAgentRegistry
 from agentos.runtime.tools import (
     FunctionTool,
     Tool,
@@ -54,6 +60,7 @@ __all__ = [
     "SessionState",
     "PlanStep",
     "ReadFileTool",
+    "SQLiteAgentRegistry",
     "RunCommandTool",
     "RunEvent",
     "RunResult",
@@ -68,6 +75,8 @@ __all__ = [
     "WebSearchTool",
     "WorkspaceSandbox",
     "WriteFileTool",
+    "build_default_agent",
+    "build_registry",
     "create_default_registry",
     "create_default_tool_registry",
     "create_local_tools",

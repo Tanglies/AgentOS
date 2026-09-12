@@ -57,6 +57,22 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 | `AGENTOS_RUNTIME__MAX_ITERATIONS` | `8` | 单次运行的最大迭代轮数（1-64），超出抛 `AgentRuntimeError` |
 | `AGENTOS_RUNTIME__SYSTEM_PROMPT` | `You are AgentOS, a helpful AI agent.` | 默认助手的系统提示词 |
 
+### Agent 注册表（`registry`）
+
+默认使用**内存**注册表，进程重启后 Agent 定义会丢失。
+开启持久化后落盘到 SQLite，重启不再丢。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_REGISTRY__PERSIST` | `false` | 是否把 Agent 定义持久化到 SQLite |
+| `AGENTOS_REGISTRY__DB_PATH` | `.agentos/agents.db` | SQLite 文件路径 |
+
+存储方式是把 `Agent` 序列化成 JSON 存进 `payload` 列，而不是为每个字段建列 ——
+Agent 定义仍在演进（工具、记忆、规划都会往上挂），JSON 列免去每次加字段都改表。
+
+启动时如果默认 Agent 不存在会**补种一个**；已存在的不会被覆盖，
+所以你自定义过的默认助手不会被重启冲掉。
+
 ### 认证（`auth`）
 
 API Key 认证。**默认关闭**以方便本地开发；对外暴露前必须开启。

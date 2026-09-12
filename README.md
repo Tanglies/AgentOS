@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | HTTP 服务 | FastAPI 应用、统一错误响应、请求 ID、健康探针、OpenAPI 文档 | ✅ v0.1 |
 | 认证 | API Key 中间件（默认关闭、失败关闭、常量时间比较） | ✅ v0.1 |
+| Agent 持久化 | 可选 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
 | Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
