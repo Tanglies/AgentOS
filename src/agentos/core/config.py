@@ -82,6 +82,12 @@ class RegistrySettings(BaseModel):
     db_path: str = ".agentos/agents.db"
 
 
+class PlatformSettings(BaseModel):
+    """Multi-tenant platform metadata configuration."""
+
+    db_path: str = ".agentos/platform.db"
+
+
 class ApiKeySettings(BaseModel):
     """API Key 存储配置。
 
@@ -209,6 +215,7 @@ class Settings(BaseSettings):
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     api: APISettings = Field(default_factory=APISettings)
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
+    platform: PlatformSettings = Field(default_factory=PlatformSettings)
     runs: RunStoreSettings = Field(default_factory=RunStoreSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)
     api_keys: ApiKeySettings = Field(default_factory=ApiKeySettings)

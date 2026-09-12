@@ -8,6 +8,14 @@ from agentos.repositories.run_repository import (
     RunStatus,
 )
 from agentos.repositories.tool_repository import ToolRepository
+from agentos.repositories.user_repository import UserRecord, UserRepository, UserStatus
+from agentos.repositories.workspace_repository import (
+    WorkspaceMemberRecord,
+    WorkspaceMemberRepository,
+    WorkspaceRecord,
+    WorkspaceRepository,
+    WorkspaceRole,
+)
 
 __all__ = [
     "AgentRepository",
@@ -16,4 +24,12 @@ __all__ = [
     "RunRepository",
     "RunStatus",
     "ToolRepository",
+    "UserRecord",
+    "UserRepository",
+    "UserStatus",
+    "WorkspaceMemberRecord",
+    "WorkspaceMemberRepository",
+    "WorkspaceRecord",
+    "WorkspaceRepository",
+    "WorkspaceRole",
 ]
