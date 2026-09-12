@@ -105,10 +105,17 @@ class LongTermMemory:
         注意：``sqlite3`` 的 ``with conn`` 只管理事务提交/回滚，
         并不会关闭连接；必须显式 close，否则会泄漏文件句柄。
         """
+        # 目录/文件可能被外部删掉（例如手工清理 .agentos/），
+        # 这里每次连接都确保目录存在；文件是新建的就重建表结构。
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        is_new = not self.path.exists()
+
         conn = sqlite3.connect(self.path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         try:
             with conn:
+                if is_new:
+                    conn.executescript(_SCHEMA)
                 yield conn
         finally:
             conn.close()

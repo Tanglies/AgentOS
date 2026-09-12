@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -153,6 +154,33 @@ def test_pagination_with_limit_and_offset(store: RunStore) -> None:
 
 
 # --- 持久化 ---------------------------------------------------------------
+
+
+def test_store_recovers_when_directory_is_removed(tmp_path: Path) -> None:
+    """目录被外部删掉（例如用户手工清空 .agentos/）后应能自动重建。"""
+    db = tmp_path / "data" / "runs.db"
+    store = RunStore(RunStoreSettings(db_path=str(db)))
+    store.record(_result("run_1"))
+    assert store.count() == 1
+
+    shutil.rmtree(tmp_path / "data")
+
+    store.record(_result("run_2"))
+    assert store.count() == 1
+    assert store.get("run_2").run_id == "run_2"
+
+
+def test_store_recovers_when_db_file_is_removed(tmp_path: Path) -> None:
+    """只删数据库文件时，表结构应自动重建，而不是抛 no such table。"""
+    db = tmp_path / "runs.db"
+    store = RunStore(RunStoreSettings(db_path=str(db)))
+    store.record(_result("run_1"))
+
+    db.unlink()
+
+    assert store.count() == 0
+    store.record(_result("run_2"))
+    assert store.count() == 1
 
 
 def test_records_survive_new_instance(tmp_path: Path) -> None:

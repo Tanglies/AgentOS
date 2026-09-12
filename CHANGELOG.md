@@ -16,6 +16,12 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **SQLite 存储的健壮性修复**：目录或文件被外部删除后自动恢复
+  - 此前三个存储（runs / memory / registry）只在 `__init__` 里建目录，
+    运行期间手工清空 `.agentos/` 会让后续所有操作报
+    `sqlite3.OperationalError: unable to open database file`（接口直接 500）
+  - 改为每次连接都确保父目录存在；数据库文件是新建的则重建表结构
+  - 覆盖两种场景：目录被删、只删 db 文件
 - **运行记录持久化与历史查询**：解决「跑完就查不到」
   - `runtime/run_store.py`：`RunStore` / `RunRecord`，落盘 SQLite
   - 结构化字段（agent / session_id / status / created_at / tokens）建列用于过滤排序，
@@ -165,6 +171,7 @@
 - `RunStore` 与 `RunResult` 之间用 `TYPE_CHECKING` 隔离，避免 run_store 与 runtime 循环导入
 - 列表接口不返回消息列表，避免历史查询把上下文撑爆；详情接口才带完整轨迹
 - 测试增至 364 个用例，新增 `tests/test_run_store.py`（22 个）
+- 测试增至 366 个用例，补充「目录被删」「db 文件被删」两个恢复场景
 - 新增 autouse 夹具 `isolate_data_paths`：用环境变量把 runs / memory / registry
   三个落盘路径统一重定向到 `tmp_path`；只改 `settings` 夹具挡不住那些
   自行构造 `Settings(_env_file=None)` 的用例，仍会往工作区 `.agentos/` 写数据

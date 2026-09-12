@@ -51,10 +51,17 @@ class SQLiteAgentRegistry:
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         """打开连接并在退出时关闭（``with conn`` 只管理事务，不关连接）。"""
+        # 目录/文件可能被外部删掉（例如手工清理 .agentos/），
+        # 这里每次连接都确保目录存在；文件是新建的就重建表结构。
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        is_new = not self.path.exists()
+
         conn = sqlite3.connect(self.path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         try:
             with conn:
+                if is_new:
+                    conn.executescript(_SCHEMA)
                 yield conn
         finally:
             conn.close()
