@@ -18,7 +18,10 @@ from fastapi.responses import JSONResponse
 
 from agentos import __version__
 from agentos.api.auth import APIKeyMiddleware
-from agentos.api.middleware import RequestContextMiddleware
+from agentos.api.middleware import (
+    JSONCharsetMiddleware,
+    RequestContextMiddleware,
+)
 from agentos.api.routes import agents, health, memories, runs, sessions, tools
 from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
@@ -102,6 +105,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["*"],
             allow_credentials=True,
         )
+    # 放最外层，保证所有内层响应（含 FastAPI 内置的 /openapi.json）都补上 charset
+    app.add_middleware(JSONCharsetMiddleware)
 
     app.include_router(health.router)
     app.include_router(agents.router, prefix=API_PREFIX)

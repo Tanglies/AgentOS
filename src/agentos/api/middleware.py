@@ -16,6 +16,40 @@ from agentos.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+class JSONCharsetMiddleware:
+    """给 ``application/json`` 响应补上 ``charset=utf-8``。
+
+    为什么需要：Starlette 只在 ``text/*`` 上自动补 charset，
+    ``application/json`` 的响应头就是光秃秃的 ``application/json``。
+    而 Windows PowerShell 5.1 的 ``Invoke-WebRequest`` 在没有 charset 时
+    按 **ISO-8859-1** 解码，中文全变乱码。
+
+    为什么用中间件而不是自定义响应类：FastAPI 内置的 ``/openapi.json``
+    直接返回 ``JSONResponse``，绕过 ``default_response_class``；
+    只有中间件能统一覆盖所有内层产生的响应。
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                content_type = headers.get("content-type", "")
+                if content_type.startswith("application/json") and (
+                    "charset=" not in content_type.lower()
+                ):
+                    headers["content-type"] = f"{content_type}; charset=utf-8"
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
 REQUEST_ID_HEADER = "x-request-id"
 
 

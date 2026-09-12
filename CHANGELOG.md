@@ -16,6 +16,14 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **JSON 响应补上 charset**：修复 PowerShell 5.1 读接口中文乱码
+  - 根因：Starlette 只在 `text/*` 上自动补 charset，`application/json` 不带；
+    而 PS 5.1 的 `Invoke-WebRequest` 在没有 charset 时按 **ISO-8859-1** 解码
+  - 新增 `JSONCharsetMiddleware`，统一给 `application/json` 响应补 `charset=utf-8`
+  - 用中间件而不是自定义响应类：FastAPI 内置的 `/openapi.json` 直接返回
+    `JSONResponse`，绕过 `default_response_class`，只有中间件能覆盖
+  - 现在 `(Invoke-WebRequest $url -UseBasicParsing).Content` 直接可用，
+    不再需要手动 `[System.Text.Encoding]::UTF8.GetString(...)`
 - **Agent 持久化**：Agent 定义落盘 SQLite，重启不再丢失
   - `runtime/sqlite_registry.py`：`SQLiteAgentRegistry`，接口与内存版一致
   - 存储用 JSON payload 列而非逐字段建列，避免 Agent 模型演进时频繁改表
@@ -134,6 +142,8 @@
 - 测试增至 307 个用例，新增 `tests/test_auth.py`（18 个）
 - SQLite 注册表同样显式关闭连接；`with sqlite3.connect(...)` 只管理事务不关连接
 - 测试增至 327 个用例，新增 `tests/test_sqlite_registry.py`（20 个）
+- charset 中间件放在**最外层**，确保所有内层响应（含异常处理与内置路由）都被覆盖
+- 测试增至 337 个用例，新增 `tests/test_responses.py`（10 个）
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），
