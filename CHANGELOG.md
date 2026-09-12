@@ -165,6 +165,9 @@
 - `RunStore` 与 `RunResult` 之间用 `TYPE_CHECKING` 隔离，避免 run_store 与 runtime 循环导入
 - 列表接口不返回消息列表，避免历史查询把上下文撑爆；详情接口才带完整轨迹
 - 测试增至 364 个用例，新增 `tests/test_run_store.py`（22 个）
+- 新增 autouse 夹具 `isolate_data_paths`：用环境变量把 runs / memory / registry
+  三个落盘路径统一重定向到 `tmp_path`；只改 `settings` 夹具挡不住那些
+  自行构造 `Settings(_env_file=None)` 的用例，仍会往工作区 `.agentos/` 写数据
 - 实测链路：Qwen3.8-Max（自定义 API）通过 OpenAI 兼容协议接入，`POST /api/v1/runs` 端到端往返约 3.6 秒，
   单轮对话 186 tokens，注册自定义 Agent（code-reviewer）后可直接复用同一 Runtime
 - 注意事项：百炼控制台下载的 CSV 里 `dashScope` 是原生端点（`/api/v1`），
