@@ -144,6 +144,8 @@ class FetchUrlTool(Tool):
         "只支持 http/https，内网与元数据地址会被拒绝。"
         "适合读取文档、文章、API 文档等公开页面。"
     )
+    category = "network"
+    risk_level = "medium"
     parameters = {
         "type": "object",
         "properties": {
@@ -225,6 +227,8 @@ class WebSearchTool(Tool):
         "联网搜索，返回与查询相关的网页标题、链接与摘要。"
         "适合需要最新信息、事实核查或查找资料链接的场景。"
     )
+    category = "network"
+    risk_level = "medium"
     parameters = {
         "type": "object",
         "properties": {

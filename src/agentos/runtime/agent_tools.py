@@ -45,6 +45,8 @@ class DelegateToAgentTool(Tool):
         "适合把不同领域的子任务分派给专门角色。"
         "委托出去的任务必须**自包含**：子 Agent 看不到当前对话的历史。"
     )
+    category = "multi_agent"
+    risk_level = "medium"
     parameters = {
         "type": "object",
         "properties": {

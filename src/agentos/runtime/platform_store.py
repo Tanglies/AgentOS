@@ -16,6 +16,8 @@ from agentos.core.tenancy import (
 from agentos.database.connection import Database
 from agentos.runtime.platform_repositories import (
     PLATFORM_SCHEMA,
+    AgentToolRepository,
+    ToolMetadataRepository,
     UserRecord,
     UserRepository,
     UserStatus,
@@ -24,6 +26,7 @@ from agentos.runtime.platform_repositories import (
     WorkspaceRecord,
     WorkspaceRepository,
     WorkspaceRole,
+    WorkspaceToolRepository,
 )
 
 
@@ -34,9 +37,15 @@ class PlatformStore:
         self._settings = settings or PlatformSettings()
         self.path = Path(self._settings.db_path).expanduser()
         self._db = Database(self.path, schema=PLATFORM_SCHEMA)
+        # PLATFORM_SCHEMA is idempotent and also upgrades databases created
+        # before Tool policy tables were introduced.
+        self._db.execute_script(PLATFORM_SCHEMA)
         self.users = UserRepository(self._db)
         self.workspaces = WorkspaceRepository(self._db)
         self.members = WorkspaceMemberRepository(self._db)
+        self.tools = ToolMetadataRepository(self._db)
+        self.workspace_tools = WorkspaceToolRepository(self._db)
+        self.agent_tools = AgentToolRepository(self._db)
         self._ensure_default_tenant()
 
     def _ensure_default_tenant(self) -> None:
@@ -87,6 +96,7 @@ class PlatformStore:
 __all__ = [
     "PlatformStore",
     "UserRecord",
+    "ToolMetadataRepository",
     "UserRepository",
     "UserStatus",
     "WorkspaceMemberRecord",
@@ -94,4 +104,5 @@ __all__ = [
     "WorkspaceRecord",
     "WorkspaceRepository",
     "WorkspaceRole",
+    "WorkspaceToolRepository",
 ]

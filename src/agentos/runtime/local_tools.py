@@ -64,6 +64,8 @@ class ListDirectoryTool(_SandboxedTool):
 
     name = "list_directory"
     description = "列出工作区内某个目录下的文件与子目录（不递归）。"
+    category = "local"
+    risk_level = "medium"
     parameters = {
         "type": "object",
         "properties": {
@@ -101,6 +103,8 @@ class ReadFileTool(_SandboxedTool):
 
     name = "read_file"
     description = "读取工作区内文本文件的内容，超过大小上限会截断。"
+    category = "local"
+    risk_level = "medium"
     parameters = {
         "type": "object",
         "properties": {
@@ -135,6 +139,8 @@ class SearchTextTool(_SandboxedTool):
 
     name = "search_text"
     description = "在工作区目录内按正则搜索文本，返回 文件:行号:内容。"
+    category = "local"
+    risk_level = "medium"
     parameters = {
         "type": "object",
         "properties": {
@@ -212,6 +218,8 @@ class WriteFileTool(_SandboxedTool):
         "在工作区内写入文本文件。创建新文件可直接写入；"
         "覆盖已存在的文件必须显式传入 overwrite=true。"
     )
+    category = "local"
+    risk_level = "medium"
     parameters = {
         "type": "object",
         "properties": {
@@ -260,6 +268,8 @@ class RunCommandTool(_SandboxedTool):
         "在工作区目录下执行 shell 命令并返回 stdout/stderr。"
         "适合运行测试、构建、git 等命令。"
     )
+    category = "local"
+    risk_level = "high"
     parameters = {
         "type": "object",
         "properties": {

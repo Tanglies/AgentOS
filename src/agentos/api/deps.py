@@ -14,6 +14,7 @@ from agentos.runtime.api_keys import ApiKeyStore, Permission
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.tool_policy_service import ToolPolicyService
 from agentos.runtime.services.user_service import UserService
 from agentos.runtime.services.workspace_service import WorkspaceService
 
@@ -61,6 +62,17 @@ def get_workspace_service(request: Request) -> WorkspaceService:
     if service is None:
         raise PermissionDeniedError(
             "workspace service is not initialized",
+            details={"hint": "create the application through create_app lifespan"},
+        )
+    return service
+
+
+def get_tool_policy_service(request: Request) -> ToolPolicyService:
+    """Return the Workspace/Agent Tool policy service."""
+    service = getattr(request.app.state, "tool_policy_service", None)
+    if service is None:
+        raise PermissionDeniedError(
+            "tool policy service is not initialized",
             details={"hint": "create the application through create_app lifespan"},
         )
     return service
@@ -115,6 +127,7 @@ RuntimeDep = Annotated[AgentRuntime, Depends(get_runtime)]
 LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 DashboardServiceDep = Annotated[DashboardService, Depends(get_dashboard_service)]
+ToolPolicyServiceDep = Annotated[ToolPolicyService, Depends(get_tool_policy_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 WorkspaceServiceDep = Annotated[WorkspaceService, Depends(get_workspace_service)]
 ApiKeyStoreDep = Annotated[ApiKeyStore, Depends(get_api_key_store)]

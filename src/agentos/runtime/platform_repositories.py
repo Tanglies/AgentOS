@@ -54,6 +54,35 @@ CREATE INDEX IF NOT EXISTS idx_workspace_members_user
     ON workspace_members (user_id);
 CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace
     ON workspace_members (workspace_id);
+CREATE TABLE IF NOT EXISTS tools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL DEFAULT 'general',
+    description TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    risk_level TEXT NOT NULL DEFAULT 'low',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workspace_tools (
+    workspace_id INTEGER NOT NULL,
+    tool_name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, tool_name)
+);
+CREATE TABLE IF NOT EXISTS agent_tools (
+    workspace_id INTEGER NOT NULL,
+    agent_id INTEGER NOT NULL,
+    tool_name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, agent_id, tool_name)
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_tools_workspace
+    ON workspace_tools (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_agent_tools_agent
+    ON agent_tools (workspace_id, agent_id);
 """
 
 
@@ -288,8 +317,191 @@ class WorkspaceMemberRepository(Repository):
         return int(row["total"]) if row is not None else 0
 
 
+class ToolRiskLevel(StrEnum):
+    """Risk classification for a trusted, code-registered Tool."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ToolMetadataRecord(BaseModel):
+    """Global metadata for a code-registered Tool."""
+
+    id: int | None = None
+    name: str
+    category: str = "general"
+    description: str = ""
+    enabled: bool = True
+    risk_level: ToolRiskLevel = ToolRiskLevel.LOW
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class WorkspaceToolRecord(BaseModel):
+    """Workspace-level Tool enablement override."""
+
+    workspace_id: int
+    tool_name: str
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class AgentToolRecord(BaseModel):
+    """Agent-level Tool enablement override."""
+
+    workspace_id: int
+    agent_id: int
+    tool_name: str
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ToolMetadataRepository(Repository):
+    """SQL access for trusted Tool metadata."""
+
+    @staticmethod
+    def _to_record(row: Any) -> ToolMetadataRecord:
+        return ToolMetadataRecord(
+            id=int(row["id"]),
+            name=str(row["name"]),
+            category=str(row["category"]),
+            description=str(row["description"] or ""),
+            enabled=bool(row["enabled"]),
+            risk_level=ToolRiskLevel(str(row["risk_level"])),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+            updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        )
+
+    def upsert(
+        self,
+        *,
+        name: str,
+        category: str,
+        description: str,
+        risk_level: ToolRiskLevel,
+    ) -> ToolMetadataRecord:
+        now = datetime.now(UTC)
+        enabled = risk_level != ToolRiskLevel.HIGH
+        self._db.execute(
+            "INSERT INTO tools "
+            "(name, category, description, enabled, risk_level, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET "
+            "category = excluded.category, "
+            "description = excluded.description, "
+            "risk_level = excluded.risk_level, "
+            "updated_at = excluded.updated_at",
+            (
+                name,
+                category,
+                description,
+                int(enabled),
+                risk_level.value,
+                now.isoformat(),
+                now.isoformat(),
+            ),
+        )
+        record = self.get(name)
+        if record is None:  # pragma: no cover - just inserted
+            raise RuntimeError(f"tool metadata missing after upsert: {name}")
+        return record
+
+    def get(self, name: str) -> ToolMetadataRecord | None:
+        row = self._db.query_one("SELECT * FROM tools WHERE name = ?", (name,))
+        return self._to_record(row) if row is not None else None
+
+    def list(self) -> list[ToolMetadataRecord]:
+        rows = self._db.query("SELECT * FROM tools ORDER BY name")
+        return [self._to_record(row) for row in rows]
+
+
+class WorkspaceToolRepository(Repository):
+    """SQL access for Workspace Tool overrides."""
+
+    def set_enabled(
+        self, workspace_id: int, tool_name: str, *, enabled: bool
+    ) -> WorkspaceToolRecord:
+        now = datetime.now(UTC)
+        self._db.execute(
+            "INSERT INTO workspace_tools "
+            "(workspace_id, tool_name, enabled, created_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(workspace_id, tool_name) DO UPDATE SET enabled = excluded.enabled",
+            (workspace_id, tool_name, int(enabled), now.isoformat()),
+        )
+        return WorkspaceToolRecord(
+            workspace_id=workspace_id,
+            tool_name=tool_name,
+            enabled=enabled,
+            created_at=now,
+        )
+
+    def get(self, workspace_id: int, tool_name: str) -> WorkspaceToolRecord | None:
+        row = self._db.query_one(
+            "SELECT * FROM workspace_tools WHERE workspace_id = ? AND tool_name = ?",
+            (workspace_id, tool_name),
+        )
+        if row is None:
+            return None
+        return WorkspaceToolRecord(
+            workspace_id=int(row["workspace_id"]),
+            tool_name=str(row["tool_name"]),
+            enabled=bool(row["enabled"]),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+        )
+
+    def enabled_map(self, workspace_id: int) -> dict[str, bool]:
+        rows = self._db.query(
+            "SELECT tool_name, enabled FROM workspace_tools WHERE workspace_id = ?",
+            (workspace_id,),
+        )
+        return {str(row["tool_name"]): bool(row["enabled"]) for row in rows}
+
+
+class AgentToolRepository(Repository):
+    """SQL access for Agent-level Tool overrides."""
+
+    def set_enabled(
+        self,
+        workspace_id: int,
+        agent_id: int,
+        tool_name: str,
+        *,
+        enabled: bool,
+    ) -> AgentToolRecord:
+        now = datetime.now(UTC)
+        self._db.execute(
+            "INSERT INTO agent_tools "
+            "(workspace_id, agent_id, tool_name, enabled, created_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(workspace_id, agent_id, tool_name) "
+            "DO UPDATE SET enabled = excluded.enabled",
+            (workspace_id, agent_id, tool_name, int(enabled), now.isoformat()),
+        )
+        return AgentToolRecord(
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            tool_name=tool_name,
+            enabled=enabled,
+            created_at=now,
+        )
+
+    def enabled_map(self, workspace_id: int, agent_id: int) -> dict[str, bool]:
+        rows = self._db.query(
+            "SELECT tool_name, enabled FROM agent_tools "
+            "WHERE workspace_id = ? AND agent_id = ?",
+            (workspace_id, agent_id),
+        )
+        return {str(row["tool_name"]): bool(row["enabled"]) for row in rows}
+
+
 __all__ = [
+    "AgentToolRecord",
+    "AgentToolRepository",
     "PLATFORM_SCHEMA",
+    "ToolMetadataRecord",
+    "ToolMetadataRepository",
+    "ToolRiskLevel",
     "UserRecord",
     "UserRepository",
     "UserStatus",
@@ -297,5 +509,7 @@ __all__ = [
     "WorkspaceMemberRepository",
     "WorkspaceRecord",
     "WorkspaceRepository",
+    "WorkspaceToolRecord",
+    "WorkspaceToolRepository",
     "WorkspaceRole",
 ]

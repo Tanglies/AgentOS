@@ -50,6 +50,7 @@ from agentos.runtime.run_store import RunStore
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.tool_policy_service import ToolPolicyService
 from agentos.runtime.services.user_service import UserService
 from agentos.runtime.services.workspace_service import WorkspaceService
 
@@ -79,6 +80,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             LongTermMemory(resolved.memory) if resolved.memory.long_term_enabled else None
         )
         tool_registry = create_default_tool_registry(resolved.tools, long_term=long_term)
+        tool_policy = ToolPolicyService(
+            platform_store.tools,
+            platform_store.workspace_tools,
+            platform_store.agent_tools,
+        )
+        tool_policy.sync(tool_registry)
         run_store = RunStore(resolved.runs) if resolved.runs.enabled else None
         audit_log = AuditLog(resolved.audit) if resolved.audit.enabled else None
         runtime = AgentRuntime(
@@ -92,11 +99,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             long_term=long_term,
             runs=run_store,
             audit=audit_log,
+            tool_policy=tool_policy,
         )
         app.state.llm_client = llm_client
         app.state.platform_store = platform_store
         app.state.user_service = user_service
         app.state.workspace_service = workspace_service
+        app.state.tool_policy_service = tool_policy
         app.state.runtime = runtime
         app.state.audit_log = audit_log
         app.state.agent_service = AgentService(runtime.registry, audit=audit_log)

@@ -19,6 +19,8 @@ class RememberTool(Tool):
         "适合记住用户偏好、身份、项目约定等稳定事实；"
         "不要记录一次性的临时内容或敏感凭据。"
     )
+    category = "memory"
+    risk_level = "low"
     parameters = {
         "type": "object",
         "properties": {
@@ -54,6 +56,8 @@ class RecallTool(Tool):
         "从长期记忆库中检索与查询相关的历史信息。"
         "需要回忆用户偏好、既往结论或项目约定时使用。"
     )
+    category = "memory"
+    risk_level = "low"
     parameters = {
         "type": "object",
         "properties": {

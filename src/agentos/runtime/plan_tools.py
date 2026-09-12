@@ -26,6 +26,8 @@ class CreatePlanTool(Tool):
         "创建后应逐步执行，并用 update_plan_step 更新每一步的状态。"
         "简单问答或单步任务不要使用本工具。"
     )
+    category = "planning"
+    risk_level = "low"
     parameters = {
         "type": "object",
         "properties": {
@@ -59,6 +61,8 @@ class UpdatePlanStepTool(Tool):
         "更新执行计划中某一步的状态：开始做时标记 in_progress，做完标记 completed。"
         "每完成一步都应调用一次，便于跟踪进度。"
     )
+    category = "planning"
+    risk_level = "low"
     parameters = {
         "type": "object",
         "properties": {

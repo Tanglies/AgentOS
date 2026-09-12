@@ -61,6 +61,7 @@ class Permission(StrEnum):
     RUN_READ = "run:read"
     TOOL_READ = "tool:read"
     TOOL_EXECUTE = "tool:execute"
+    TOOL_ADMIN = "tool:admin"
     SESSION_READ = "session:read"
     SESSION_WRITE = "session:write"
     MEMORY_READ = "memory:read"

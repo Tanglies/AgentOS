@@ -58,6 +58,7 @@ from agentos.runtime.planning import (
 from agentos.runtime.registry import AgentRegistry, build_registry
 from agentos.runtime.repositories import AuditStatus
 from agentos.runtime.run_store import RunStore
+from agentos.runtime.services.tool_policy_service import ToolPolicyService
 from agentos.runtime.tools import ToolCallResult, ToolRegistry
 
 logger = get_logger(__name__)
@@ -119,6 +120,7 @@ class AgentRuntime:
         long_term: LongTermMemory | None = None,
         runs: RunStore | None = None,
         audit: AuditLog | None = None,
+        tool_policy: ToolPolicyService | None = None,
         registry_db_path: str | None = None,
         enable_delegation: bool = True,
         max_delegation_depth: int = DEFAULT_MAX_DEPTH,
@@ -130,6 +132,7 @@ class AgentRuntime:
         self._long_term = long_term
         self._runs = runs
         self._audit = audit
+        self._tool_policy = tool_policy
 
         # 委托工具需要引用 Runtime 自身，只能在实例化过程中注册
         if enable_delegation:
@@ -339,7 +342,9 @@ class AgentRuntime:
                 for call in response.tool_calls or []:
                     yield RunEvent(type="tool_call", tool_call=call)
 
-                results = await self._run_tool_calls(response.tool_calls or [])
+                results = await self._run_tool_calls(
+                    response.tool_calls or [], resolved
+                )
                 tool_call_count += len(results)
                 for tool_result in results:
                     yield RunEvent(type="tool_result", tool_result=tool_result)
@@ -502,14 +507,34 @@ class AgentRuntime:
             return agent
         return self._registry.get(agent)
 
+    def _agent_record_id(self, agent_name: str) -> int | None:
+        repository = getattr(self._registry, "repository", None)
+        if repository is None or not hasattr(repository, "get_record"):
+            return None
+        record = repository.get_record(
+            agent_name,
+            workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
+        )
+        return record.id if record is not None else None
+
     def _build_options(self, agent: Agent) -> CompletionOptions:
-        """把 Agent 的模型参数与可用工具合并成单次调用选项。"""
+        """把 Agent 的模型参数与租户可见工具合并成单次调用选项。"""
         options = agent.completion_options()
         if not agent.tools:
             return options
-        return options.model_copy(update={"tools": self._tools.specs(agent.tools)})
+        names = list(agent.tools)
+        if self._tool_policy is not None:
+            names = self._tool_policy.visible_tool_names(
+                self._tools,
+                agent,
+                workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
+                agent_id=self._agent_record_id(agent.name),
+            )
+        return options.model_copy(update={"tools": self._tools.specs(names)})
 
-    async def _run_tool_calls(self, tool_calls: Sequence[ToolCall]) -> list[ToolCallResult]:
+    async def _run_tool_calls(
+        self, tool_calls: Sequence[ToolCall], agent: Agent
+    ) -> list[ToolCallResult]:
         """按声明顺序执行工具调用。
 
         顺序执行而非并发，保证同一轮内多个工具调用的副作用可预期；
@@ -517,6 +542,31 @@ class AgentRuntime:
         """
         results: list[ToolCallResult] = []
         for tool_call in tool_calls:
+            if self._tool_policy is not None:
+                allowed = self._tool_policy.visible_tool_names(
+                    self._tools,
+                    agent,
+                    workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
+                    agent_id=self._agent_record_id(agent.name),
+                )
+                if tool_call.name not in allowed:
+                    result = ToolCallResult(
+                        tool_call_id=tool_call.id,
+                        name=tool_call.name,
+                        content=(
+                            f"Error: tool execution permission denied: {tool_call.name}"
+                        ),
+                        is_error=True,
+                    )
+                    if self._audit is not None:
+                        self._audit.record(
+                            ACTION_TOOL_EXECUTE,
+                            status=AuditStatus.FAILURE,
+                            target=tool_call.name,
+                            detail="tool not visible in current workspace/agent policy",
+                        )
+                    results.append(result)
+                    continue
             result = await self._tools.execute(tool_call)
             if self._audit is not None:
                 self._audit.record(

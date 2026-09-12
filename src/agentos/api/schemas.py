@@ -47,19 +47,26 @@ class ReadyResponse(BaseModel):
 
 
 class ToolSummary(BaseModel):
-    """工具摘要信息。"""
+    """???????"""
 
     name: str
     description: str = ""
+    category: str = "general"
+    risk_level: str = "low"
+    enabled: bool = True
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_tool(cls, tool: Tool) -> ToolSummary:
-        # 用 spec() 而不是类属性：像 delegate_to_agent 这类工具的描述是
-        # 运行时动态生成的（列出当前可用 Agent），API 应展示模型真正看到的内容
+    def from_tool(cls, tool: Tool, *, enabled: bool = True) -> ToolSummary:
+        # ? spec() ???????????????????????
         spec = tool.spec()
         return cls(
-            name=spec.name, description=spec.description, parameters=spec.parameters
+            name=spec.name,
+            description=spec.description,
+            category=tool.category,
+            risk_level=tool.risk_level,
+            enabled=enabled,
+            parameters=spec.parameters,
         )
 
 
@@ -542,3 +549,9 @@ class WorkspaceMemberListResponse(BaseModel):
 
     items: list[WorkspaceMemberSummary]
     total: int
+
+
+class ToolUpdateRequest(BaseModel):
+    """Enable or disable a Tool for the current Workspace."""
+
+    enabled: bool

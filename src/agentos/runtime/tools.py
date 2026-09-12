@@ -65,6 +65,14 @@ def tool_permission_scope(checker: PermissionChecker | None) -> Iterator[None]:
         _PERMISSION_CHECKER.reset(token)
 
 
+def current_tool_permissions_allowed(required: Iterable[str]) -> bool:
+    """Return whether the current request may execute a Tool."""
+    checker = _PERMISSION_CHECKER.get()
+    if checker is None:
+        return True
+    return all(checker(permission) for permission in required)
+
+
 def _check_tool_permissions(required: Iterable[str]) -> None:
     checker = _PERMISSION_CHECKER.get()
     if checker is None:
@@ -177,6 +185,8 @@ class Tool(ABC):
 
     name: str = ""
     description: str = ""
+    category: str = "general"
+    risk_level: str = "low"
     required_permissions: tuple[str, ...] = ("tool:execute",)
     parameters: dict[str, Any] = {"type": "object", "properties": {}}
 

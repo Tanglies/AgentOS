@@ -80,6 +80,8 @@ class CalculateTool(Tool):
 
     name = "calculate"
     description = "计算一个基础算术表达式，支持 + - * / // % ** 与括号。"
+    category = "general"
+    risk_level = "low"
     parameters = {
         "type": "object",
         "properties": {
@@ -111,6 +113,8 @@ class GetCurrentTimeTool(Tool):
         "获取当前日期和时间。可用 utc_offset_hours 指定与 UTC 的小时偏移"
         "（例如北京时间/上海为 8），不传则返回 UTC 时间。"
     )
+    category = "general"
+    risk_level = "low"
     parameters = {
         "type": "object",
         "properties": {
