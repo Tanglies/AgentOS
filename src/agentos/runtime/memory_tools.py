@@ -25,7 +25,12 @@ class RememberTool(Tool):
             "content": {
                 "type": "string",
                 "description": "要记住的内容，用一句完整独立的话描述，例如「用户偏好用中文回答」",
-            }
+            },
+            "scope": {
+                "type": "string",
+                "enum": ["user", "workspace"],
+                "description": "user 仅本人可见，workspace 当前 Workspace 成员共享",
+            },
         },
         "required": ["content"],
     }
@@ -33,9 +38,12 @@ class RememberTool(Tool):
     def __init__(self, memory: LongTermMemory) -> None:
         self._memory = memory
 
-    async def run(self, content: str) -> str:
-        record = self._memory.remember(content)
-        return f"已写入长期记忆（id={record.id}）：{record.content}"
+    async def run(self, content: str, scope: str = "workspace") -> str:
+        record = self._memory.remember(content, scope=scope)
+        return (
+            f"已写入长期记忆（id={record.id}, scope={record.scope.value}）："
+            f"{record.content}"
+        )
 
 
 class RecallTool(Tool):
@@ -49,7 +57,12 @@ class RecallTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "检索关键词或问题"}
+            "query": {"type": "string", "description": "检索关键词或问题"},
+            "scope": {
+                "type": "string",
+                "enum": ["user", "workspace"],
+                "description": "可选；限定只搜索本人或 Workspace 共享记忆",
+            },
         },
         "required": ["query"],
     }
@@ -57,8 +70,8 @@ class RecallTool(Tool):
     def __init__(self, memory: LongTermMemory) -> None:
         self._memory = memory
 
-    async def run(self, query: str) -> str:
-        records = self._memory.recall(query)
+    async def run(self, query: str, scope: str | None = None) -> str:
+        records = self._memory.recall(query, scope=scope)
         if not records:
             return f"没有找到与「{query}」相关的长期记忆。"
 

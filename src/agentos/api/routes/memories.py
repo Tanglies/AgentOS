@@ -53,7 +53,9 @@ async def create_memory(
     payload: MemoryCreateRequest, runtime: RuntimeDep
 ) -> MemorySummary:
     memory = _require_memory(runtime)
-    record = memory.remember(payload.content, session_id=payload.session_id)
+    record = memory.remember(
+        payload.content, session_id=payload.session_id, scope=payload.scope
+    )
     return MemorySummary.from_record(record)
 
 

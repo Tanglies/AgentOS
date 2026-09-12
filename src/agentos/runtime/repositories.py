@@ -109,11 +109,17 @@ CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_logs (run_id);
 MEMORIES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER,
+    scope TEXT NOT NULL DEFAULT 'workspace',
     content TEXT NOT NULL,
     session_id TEXT,
     created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_workspace_created
+    ON memories (workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_workspace_user
+    ON memories (workspace_id, user_id, scope);
 """
 
 
@@ -199,10 +205,20 @@ class AuditEntry(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class MemoryScope(StrEnum):
+    """Visibility scope for a long-term memory."""
+
+    USER = "user"
+    WORKSPACE = "workspace"
+
+
 class MemoryRecord(BaseModel):
-    """一条长期记忆。"""
+    """???????"""
 
     id: int
+    workspace_id: int = DEFAULT_WORKSPACE_ID
+    user_id: int | None = None
+    scope: MemoryScope = MemoryScope.WORKSPACE
     content: str
     session_id: str | None = None
     created_at: datetime
@@ -747,82 +763,237 @@ class RunRepository(Repository):
 
 
 class MemoryRepository(Repository):
-    """``memories`` 表的数据访问。"""
+    """Workspace and user scoped access to ``memories``."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
+        self._db.ensure_columns(
+            "memories",
+            {
+                "workspace_id": "INTEGER NOT NULL DEFAULT 1",
+                "user_id": "INTEGER",
+                "scope": "TEXT NOT NULL DEFAULT 'workspace'",
+            },
+            backfill=(
+                "UPDATE memories SET workspace_id = 1 WHERE workspace_id IS NULL; "
+                "UPDATE memories SET user_id = 1 WHERE user_id IS NULL; "
+                "UPDATE memories SET scope = 'workspace' WHERE scope IS NULL"
+            ),
+        )
 
     @staticmethod
     def _to_record(row: Any) -> MemoryRecord:
         return MemoryRecord(
             id=int(row["id"]),
+            workspace_id=int(row["workspace_id"] or DEFAULT_WORKSPACE_ID),
+            user_id=int(row["user_id"]) if row["user_id"] is not None else None,
+            scope=MemoryScope(str(row["scope"] or MemoryScope.WORKSPACE)),
             content=str(row["content"]),
             session_id=row["session_id"],
             created_at=datetime.fromisoformat(str(row["created_at"])),
         )
 
-    def add(self, *, content: str, session_id: str | None, created_at: datetime) -> MemoryRecord:
+    @staticmethod
+    def _visibility_clause(
+        *, workspace_id: int, user_id: int | None, scope: MemoryScope | None
+    ) -> tuple[str, tuple[Any, ...]]:
+        if scope == MemoryScope.USER:
+            return "workspace_id = ? AND scope = 'user' AND user_id = ?", (
+                workspace_id,
+                user_id,
+            )
+        if scope == MemoryScope.WORKSPACE:
+            return "workspace_id = ? AND scope = 'workspace'", (workspace_id,)
+        if user_id is None:
+            return "workspace_id = ? AND scope = 'workspace'", (workspace_id,)
+        return (
+            "workspace_id = ? AND (scope = 'workspace' "
+            "OR (scope = 'user' AND user_id = ?))",
+            (workspace_id, user_id),
+        )
+
+    def add(
+        self,
+        *,
+        content: str,
+        session_id: str | None,
+        created_at: datetime,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+        scope: MemoryScope = MemoryScope.WORKSPACE,
+    ) -> MemoryRecord:
         with self._db.connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO memories (content, session_id, created_at) VALUES (?, ?, ?)",
-                (content, session_id, created_at.isoformat()),
+                "INSERT INTO memories "
+                "(workspace_id, user_id, scope, content, session_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    workspace_id,
+                    user_id,
+                    scope.value,
+                    content,
+                    session_id,
+                    created_at.isoformat(),
+                ),
             )
             memory_id = int(cursor.lastrowid or 0)
         return MemoryRecord(
-            id=memory_id, content=content, session_id=session_id, created_at=created_at
+            id=memory_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            scope=scope,
+            content=content,
+            session_id=session_id,
+            created_at=created_at,
         )
 
-    def get(self, memory_id: int) -> MemoryRecord | None:
-        row = self._db.query_one("SELECT * FROM memories WHERE id = ?", (memory_id,))
+    def get(
+        self,
+        memory_id: int,
+        *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+    ) -> MemoryRecord | None:
+        visibility, params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=None
+        )
+        row = self._db.query_one(
+            f"SELECT * FROM memories WHERE id = ? AND {visibility}",
+            (memory_id, *params),
+        )
         return self._to_record(row) if row is not None else None
 
-    def list(self, *, limit: int = 50) -> list[MemoryRecord]:
+    def list(
+        self,
+        *,
+        limit: int = 50,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+        scope: MemoryScope | None = None,
+    ) -> list[MemoryRecord]:
+        visibility, params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=scope
+        )
         rows = self._db.query(
-            "SELECT * FROM memories ORDER BY created_at DESC, id DESC LIMIT ?", (limit,)
+            f"SELECT * FROM memories WHERE {visibility} "
+            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            (*params, limit),
         )
         return [self._to_record(row) for row in rows]
 
     def save_memory(
-        self, *, content: str, session_id: str | None, created_at: datetime
+        self,
+        *,
+        content: str,
+        session_id: str | None,
+        created_at: datetime,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+        scope: MemoryScope = MemoryScope.WORKSPACE,
     ) -> MemoryRecord:
         """Compatibility name for writing a memory record."""
-        return self.add(content=content, session_id=session_id, created_at=created_at)
+        return self.add(
+            content=content,
+            session_id=session_id,
+            created_at=created_at,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            scope=scope,
+        )
 
-    def search_memory(self, *, terms: Sequence[str], limit: int) -> list[MemoryRecord]:
+    def search_memory(
+        self,
+        *,
+        terms: Sequence[str],
+        limit: int,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+        scope: MemoryScope | None = None,
+    ) -> list[MemoryRecord]:
         """Compatibility name for keyword search."""
-        return self.search(terms=terms, limit=limit)
+        return self.search(
+            terms=terms,
+            limit=limit,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            scope=scope,
+        )
 
-    def search(self, *, terms: Sequence[str], limit: int) -> list[MemoryRecord]:
-        """按关键词加权召回：命中词越长得分越高。"""
+    def search(
+        self,
+        *,
+        terms: Sequence[str],
+        limit: int,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+        scope: MemoryScope | None = None,
+    ) -> list[MemoryRecord]:
+        """按关键词加权召回，并强制应用 tenant visibility。"""
         if not terms:
             return []
+        visibility, visibility_params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=scope
+        )
         score_parts = ["CASE WHEN lower(content) LIKE ? THEN ? ELSE 0 END" for _ in terms]
-        params: list[Any] = []
+        score_params: list[Any] = []
         for term in terms:
-            params.append(f"%{term.lower()}%")
-            params.append(len(term))
-        params.append(limit)
-
+            score_params.extend((f"%{term.lower()}%", len(term)))
         sql = (
             "SELECT * FROM ("
             "  SELECT *, ("
             + " + ".join(score_parts)
-            + ") AS score FROM memories"
+            + ") AS score FROM memories "
+            f"WHERE {visibility}"
             ") WHERE score > 0 "
             "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?"
         )
-        rows = self._db.query(sql, params)
+        rows = self._db.query(
+            sql, (*score_params, *visibility_params, limit)
+        )
         return [self._to_record(row) for row in rows]
 
-    def remove(self, memory_id: int) -> bool:
-        return self._db.execute("DELETE FROM memories WHERE id = ?", (memory_id,)) > 0
+    def remove(
+        self,
+        memory_id: int,
+        *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+    ) -> bool:
+        visibility, params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=None
+        )
+        return self._db.execute(
+            f"DELETE FROM memories WHERE id = ? AND {visibility}",
+            (memory_id, *params),
+        ) > 0
 
-    def clear(self) -> int:
-        return self._db.execute("DELETE FROM memories")
+    def clear(
+        self,
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> int:
+        if workspace_id is None:
+            return self._db.execute("DELETE FROM memories")
+        visibility, params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=None
+        )
+        return self._db.execute(f"DELETE FROM memories WHERE {visibility}", params)
 
-    def count(self) -> int:
-        row = self._db.query_one("SELECT COUNT(*) AS total FROM memories")
+    def count(
+        self,
+        *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+    ) -> int:
+        visibility, params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=None
+        )
+        row = self._db.query_one(
+            f"SELECT COUNT(*) AS total FROM memories WHERE {visibility}", params
+        )
         return int(row["total"]) if row is not None else 0
+
 
 class AuditRepository(Repository):
     """``audit_logs`` 表的数据访问。"""

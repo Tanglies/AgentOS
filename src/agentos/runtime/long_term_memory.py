@@ -29,16 +29,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agentos.core.config import MemorySettings
+from agentos.core.context import get_user_id, get_workspace_id
+from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.runtime.repositories import (
     MEMORIES_SCHEMA,
     MemoryRecord,
     MemoryRepository,
+    MemoryScope,
 )
 
 MAX_CONTENT_CHARS = 4000
 
-__all__ = ["MAX_CONTENT_CHARS", "LongTermMemory", "MemoryRecord", "extract_terms"]
+__all__ = [
+    "MAX_CONTENT_CHARS",
+    "LongTermMemory",
+    "MemoryRecord",
+    "MemoryScope",
+    "extract_terms",
+]
 
 _ASCII_WORD_PATTERN = re.compile(r"[A-Za-z0-9_]{2,}")
 _CJK_RUN_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
@@ -84,36 +93,107 @@ class LongTermMemory:
         """是否在每次运行前自动召回相关记忆。"""
         return self._settings.long_term_auto_recall
 
-    def remember(self, content: str, *, session_id: str | None = None) -> MemoryRecord:
-        """写入一条记忆，内容按 ``MAX_CONTENT_CHARS`` 截断。"""
+    @staticmethod
+    def _scope_ids(
+        workspace_id: int | None = None, user_id: int | None = None
+    ) -> tuple[int, int]:
+        return (
+            workspace_id or get_workspace_id() or DEFAULT_WORKSPACE_ID,
+            user_id if user_id is not None else get_user_id() or DEFAULT_USER_ID,
+        )
+
+    def remember(
+        self,
+        content: str,
+        *,
+        session_id: str | None = None,
+        scope: MemoryScope | str = MemoryScope.WORKSPACE,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> MemoryRecord:
+        """写入一条记忆，scope 和租户标识来自上下文。"""
         text = content.strip()[:MAX_CONTENT_CHARS]
         if not text:
             raise ValueError("memory content must not be empty")
+        resolved_scope = MemoryScope(scope)
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
         return self._repo.add(
-            content=text, session_id=session_id, created_at=datetime.now(UTC)
+            content=text,
+            session_id=session_id,
+            created_at=datetime.now(UTC),
+            workspace_id=resolved_workspace,
+            user_id=resolved_user if resolved_scope == MemoryScope.USER else None,
+            scope=resolved_scope,
         )
 
-    def recall(self, query: str, *, limit: int | None = None) -> list[MemoryRecord]:
-        """按关键词相关性召回记忆，无命中时返回空列表。"""
+    def recall(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+        scope: MemoryScope | str | None = None,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> list[MemoryRecord]:
+        """按关键词和 tenant visibility 召回记忆。"""
         terms = extract_terms(query)
         if not terms:
             return []
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
         return self._repo.search(
-            terms=terms, limit=limit or self._settings.long_term_recall_limit
+            terms=terms,
+            limit=limit or self._settings.long_term_recall_limit,
+            workspace_id=resolved_workspace,
+            user_id=resolved_user,
+            scope=MemoryScope(scope) if scope is not None else None,
         )
 
-    def list(self, *, limit: int = 50) -> list[MemoryRecord]:
-        """按写入时间倒序返回记忆。"""
-        return self._repo.list(limit=limit)
+    def list(
+        self,
+        *,
+        limit: int = 50,
+        scope: MemoryScope | str | None = None,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> list[MemoryRecord]:
+        """按写入时间倒序返回当前 Workspace 可见记忆。"""
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
+        return self._repo.list(
+            limit=limit,
+            workspace_id=resolved_workspace,
+            user_id=resolved_user,
+            scope=MemoryScope(scope) if scope is not None else None,
+        )
 
-    def forget(self, memory_id: int) -> bool:
-        """删除一条记忆，返回是否确实存在。"""
-        return self._repo.remove(memory_id)
+    def forget(
+        self,
+        memory_id: int,
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> bool:
+        """删除当前租户可见的一条记忆。"""
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
+        return self._repo.remove(
+            memory_id,
+            workspace_id=resolved_workspace,
+            user_id=resolved_user,
+        )
 
-    def clear(self) -> int:
-        """清空全部记忆，返回删除条数。"""
-        return self._repo.clear()
+    def clear(
+        self, *, workspace_id: int | None = None, user_id: int | None = None
+    ) -> int:
+        """清空当前租户可见记忆。"""
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
+        return self._repo.clear(
+            workspace_id=resolved_workspace, user_id=resolved_user
+        )
 
-    def count(self) -> int:
-        """返回记忆总条数。"""
-        return self._repo.count()
+    def count(
+        self, *, workspace_id: int | None = None, user_id: int | None = None
+    ) -> int:
+        """返回当前租户可见记忆条数。"""
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
+        return self._repo.count(
+            workspace_id=resolved_workspace, user_id=resolved_user
+        )

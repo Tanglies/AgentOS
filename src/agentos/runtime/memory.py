@@ -23,7 +23,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from agentos.core.config import MemorySettings
-from agentos.core.context import new_id
+from agentos.core.context import get_user_id, get_workspace_id, new_id
+from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.runtime.message import Message, MessageRole, utcnow
 
 
@@ -43,6 +44,8 @@ class SessionState(BaseModel):
     """一个会话的记忆快照。"""
 
     session_id: str
+    workspace_id: int = DEFAULT_WORKSPACE_ID
+    user_id: int = DEFAULT_USER_ID
     messages: list[Message] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -58,7 +61,26 @@ class MemoryStore:
 
     def __init__(self, settings: MemorySettings | None = None) -> None:
         self._settings = settings or MemorySettings()
-        self._sessions: OrderedDict[str, SessionState] = OrderedDict()
+        self._sessions: OrderedDict[tuple[int, int, str], SessionState] = OrderedDict()
+
+    @staticmethod
+    def _scope(
+        workspace_id: int | None = None, user_id: int | None = None
+    ) -> tuple[int, int]:
+        return (
+            workspace_id or get_workspace_id() or DEFAULT_WORKSPACE_ID,
+            user_id if user_id is not None else get_user_id() or DEFAULT_USER_ID,
+        )
+
+    @classmethod
+    def _key(
+        cls,
+        session_id: str,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> tuple[int, int, str]:
+        workspace, user = cls._scope(workspace_id, user_id)
+        return workspace, user, session_id
 
     @staticmethod
     def new_session_id() -> str:
@@ -76,40 +98,82 @@ class MemoryStore:
         fallback = self._settings.default_session_id.strip()
         return fallback or None
 
-    def get(self, session_id: str) -> SessionState | None:
-        """返回会话快照，不存在时返回 ``None``。"""
-        state = self._sessions.get(session_id)
+    def get(
+        self,
+        session_id: str,
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> SessionState | None:
+        """返回当前租户的会话快照。"""
+        key = self._key(session_id, workspace_id, user_id)
+        state = self._sessions.get(key)
         if state is not None:
-            self._sessions.move_to_end(session_id)
+            self._sessions.move_to_end(key)
         return state
 
-    def history(self, session_id: str) -> list[Message]:
-        """返回可用于组装消息的历史（不含系统提示词）。"""
-        state = self.get(session_id)
+    def history(
+        self,
+        session_id: str,
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> list[Message]:
+        """返回当前租户会话的历史。"""
+        state = self.get(session_id, workspace_id=workspace_id, user_id=user_id)
         return list(state.messages) if state is not None else []
 
-    def append(self, session_id: str, messages: Sequence[Message]) -> SessionState:
-        """把本轮新增消息追加到会话，并按容量约束截断。"""
-        state = self._sessions.get(session_id)
+    def append(
+        self,
+        session_id: str,
+        messages: Sequence[Message],
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> SessionState:
+        """把本轮新增消息追加到当前租户的会话。"""
+        scope = self._scope(workspace_id, user_id)
+        key = (*scope, session_id)
+        state = self._sessions.get(key)
         if state is None:
-            state = SessionState(session_id=session_id)
-            self._sessions[session_id] = state
+            state = SessionState(
+                session_id=session_id,
+                workspace_id=scope[0],
+                user_id=scope[1],
+            )
+            self._sessions[key] = state
 
         state.messages.extend(messages)
         state.messages = _trim_turns(state.messages, self._settings.max_messages_per_session)
         state.updated_at = utcnow()
 
-        self._sessions.move_to_end(session_id)
+        self._sessions.move_to_end(key)
         self._evict()
         return state
 
-    def clear(self, session_id: str) -> bool:
-        """删除会话，返回是否确实存在。"""
-        return self._sessions.pop(session_id, None) is not None
+    def clear(
+        self,
+        session_id: str,
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> bool:
+        """删除当前租户会话，返回是否确实存在。"""
+        return self._sessions.pop(self._key(session_id, workspace_id, user_id), None) is not None
 
-    def list(self) -> list[SessionState]:
-        """返回全部会话，最近更新的排在前面。"""
-        return list(reversed(self._sessions.values()))
+    def list(
+        self,
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> list[SessionState]:
+        """返回当前租户全部会话，最近更新的排在前面。"""
+        scope = self._scope(workspace_id, user_id)
+        return [
+            state
+            for key, state in reversed(self._sessions.items())
+            if key[:2] == scope
+        ]
 
     def _evict(self) -> None:
         """按 LRU 淘汰超出上限的会话。"""
@@ -117,7 +181,11 @@ class MemoryStore:
             self._sessions.popitem(last=False)
 
     def __contains__(self, session_id: object) -> bool:
-        return isinstance(session_id, str) and session_id in self._sessions
+        return (
+            isinstance(session_id, str)
+            and self._key(session_id) in self._sessions
+        )
 
     def __len__(self) -> int:
-        return len(self._sessions)
+        scope = self._scope(None, None)
+        return sum(1 for key in self._sessions if key[:2] == scope)

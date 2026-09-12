@@ -21,7 +21,7 @@ from agentos.runtime.platform_repositories import (
     WorkspaceRecord,
     WorkspaceRole,
 )
-from agentos.runtime.repositories import ApiKeyRecord
+from agentos.runtime.repositories import ApiKeyRecord, MemoryScope
 from agentos.runtime.run_store import RunRecord
 from agentos.runtime.runtime import RunResult
 from agentos.runtime.tools import Tool
@@ -221,6 +221,9 @@ class MemorySummary(BaseModel):
     """长期记忆摘要。"""
 
     id: int
+    workspace_id: int = 1
+    user_id: int | None = None
+    scope: MemoryScope = MemoryScope.WORKSPACE
     content: str
     session_id: str | None = None
     created_at: datetime
@@ -229,6 +232,9 @@ class MemorySummary(BaseModel):
     def from_record(cls, record: MemoryRecord) -> MemorySummary:
         return cls(
             id=record.id,
+            workspace_id=record.workspace_id,
+            user_id=record.user_id,
+            scope=record.scope,
             content=record.content,
             session_id=record.session_id,
             created_at=record.created_at,
@@ -240,6 +246,7 @@ class MemoryCreateRequest(BaseModel):
 
     content: str = Field(min_length=1, max_length=4000)
     session_id: str | None = Field(default=None, max_length=64)
+    scope: MemoryScope = MemoryScope.WORKSPACE
 
 
 class MemoryListResponse(BaseModel):
@@ -253,6 +260,8 @@ class SessionSummary(BaseModel):
     """会话摘要。"""
 
     session_id: str
+    workspace_id: int = 1
+    user_id: int = 1
     turns: int
     messages: int
     created_at: datetime
@@ -262,6 +271,8 @@ class SessionSummary(BaseModel):
     def from_state(cls, state: SessionState) -> SessionSummary:
         return cls(
             session_id=state.session_id,
+            workspace_id=state.workspace_id,
+            user_id=state.user_id,
             turns=state.turn_count,
             messages=len(state.messages),
             created_at=state.created_at,
@@ -273,6 +284,8 @@ class SessionDetail(BaseModel):
     """会话详情。"""
 
     session_id: str
+    workspace_id: int = 1
+    user_id: int = 1
     turns: int
     messages: list[Message]
     created_at: datetime
@@ -282,6 +295,8 @@ class SessionDetail(BaseModel):
     def from_state(cls, state: SessionState) -> SessionDetail:
         return cls(
             session_id=state.session_id,
+            workspace_id=state.workspace_id,
+            user_id=state.user_id,
             turns=state.turn_count,
             messages=state.messages,
             created_at=state.created_at,
