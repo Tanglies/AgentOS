@@ -110,13 +110,19 @@ async def list_runs(
     agent: str | None = Query(default=None, description="按 Agent 名过滤"),
     session_id: str | None = Query(default=None, description="按会话过滤"),
     status: Annotated[RunStatus | None, Query(description="按状态过滤")] = None,
+    order: Annotated[str, Query(pattern="^(asc|desc)$", description="按时间排序")] = "desc",
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> RunListResponse:
     """按时间倒序返回运行记录（不含消息列表）。"""
     store = _require_run_store(runtime)
     records = store.list(  # type: ignore[attr-defined]
-        agent=agent, session_id=session_id, status=status, limit=limit, offset=offset
+        agent=agent,
+        session_id=session_id,
+        status=status,
+        order=order,
+        limit=limit,
+        offset=offset,
     )
     return RunListResponse(
         items=[RunSummary.from_record(record) for record in records],

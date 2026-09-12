@@ -27,8 +27,8 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 
 ## 阶段 2：平台能力
 
-- [x] Agent 持久化（`SQLiteAgentRegistry`，`AGENTOS_REGISTRY__PERSIST=true` 启用）
-- [x] 运行记录持久化与历史查询（`RunStore` + `GET /api/v1/runs`，含过滤与分页）
+- [x] Agent 持久化（`SQLiteAgentRegistry`，**默认开启**；Repository 层重构完成）
+- [x] 运行记录持久化与历史查询（`RunStore` + `GET /api/v1/runs`，含过滤/分页/排序）
 - [ ] Tool 管理（注册、分类、权限绑定）
 - [ ] 权限系统（身份认证、配额、工具访问控制）
   - [x] API Key 认证：`AGENTOS_AUTH__ENABLED` + `AGENTOS_AUTH__API_KEYS`，失败关闭 + 常量时间比较
@@ -43,11 +43,16 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [ ] 工具访问控制：按用户/角色限制可用工具
 - [ ] API 完善（分页、过滤、批量操作）
 - [ ] 数据模型与迁移机制
+  - [x] 统一 `Database` 模块 + Repository 层（`core/database.py`、`runtime/repositories.py`）
+  - [ ] schema 版本表与增量迁移脚本
 
 ## 阶段 3：工程能力
 
 - [ ] Observability：指标与链路追踪
 - [ ] Evaluation：评测集与自动评分
+  - [x] 基础指标：延迟分位、token 用量、成功率、工具调用（`GET /api/v1/evaluation/summary`）
+  - [ ] 评测集：构造用例集与期望输出
+  - [ ] 自动评分：规则评分 + 裁判模型评分
 - [ ] 性能优化：并发、缓存（流式响应已完成，见阶段 1）
 - [ ] Docker 部署：镜像与本地一键启动
 - [ ] CI 流水线（需确认后接入）

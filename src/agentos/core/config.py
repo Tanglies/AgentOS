@@ -74,11 +74,11 @@ class APISettings(BaseModel):
 class RegistrySettings(BaseModel):
     """Agent 注册表持久化配置。
 
-    默认使用内存实现（进程重启即清空）；开启 ``persist`` 后 Agent 定义
-    落盘到 SQLite，重启不再丢失。
+    **默认持久化**：Agent 定义落盘 SQLite，进程重启不再丢失。
+    设为 ``False`` 可退回内存实现（测试与嵌入式场景用）。
     """
 
-    persist: bool = False
+    persist: bool = True
     db_path: str = ".agentos/agents.db"
 
 

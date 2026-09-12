@@ -10,8 +10,10 @@
 | --- | --- | --- |
 | HTTP 服务 | FastAPI 应用、统一错误响应、请求 ID、健康探针、OpenAPI 文档 | ✅ v0.1 |
 | 认证 | API Key 中间件（默认关闭、失败关闭、常量时间比较） | ✅ v0.1 |
-| Agent 持久化 | 可选 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
-| 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页 | ✅ v0.1 |
+| Agent 持久化 | 默认 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
+| 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页、排序 | ✅ v0.1 |
+| 数据访问层 | 统一 `Database` + Agent / Run / Memory 三个 Repository | ✅ v0.1 |
+| Evaluation | 延迟分位、token 用量、成功率、工具调用统计 | ✅ v0.1 |
 | Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
@@ -196,6 +198,45 @@ curl.exe http://127.0.0.1:8000/api/v1/agents -H "X-API-Key: sk-your-key"
 > 开启但没配置任何密钥时，服务会**拒绝所有请求**（fail closed）——
 > 配置失误不应该变成安全漏洞。
 
+### 运行历史与评估
+
+每次运行（含失败）都会落盘，可按 Agent / 会话 / 状态过滤，按时间正序或倒序排列：
+
+```powershell
+# 历史列表（默认最新在前）
+curl.exe "http://127.0.0.1:8000/api/v1/runs?agent=assistant&limit=10"
+
+# 最早在前
+curl.exe "http://127.0.0.1:8000/api/v1/runs?order=asc"
+
+# 单次运行详情（含完整消息轨迹）
+curl.exe "http://127.0.0.1:8000/api/v1/runs/run_xxxx"
+
+# 评估汇总
+curl.exe "http://127.0.0.1:8000/api/v1/evaluation/summary?agent=assistant"
+```
+
+评估指标基于运行记录聚合，**不调用模型打分**：
+
+| 指标 | 内容 |
+| --- | --- |
+| 延迟 | avg / p50 / p95 / max（毫秒） |
+| token | prompt / completion / total / 每次运行均值 |
+| 成功率 | completed / 总数 |
+| 工具调用 | 合计 / 均值 / 单次最多 / 多少运行用了工具 |
+
+```json
+{
+  "runs": 12, "succeeded": 11, "failed": 1, "success_rate": 0.9167,
+  "latency": {"avg": 1832.5, "p50": 1701.2, "p95": 3120.8, "max": 3402.1},
+  "tokens": {"prompt": 8421, "completion": 3102, "total": 11523, "avg_per_run": 960.25},
+  "tool_calls": {"total": 18, "avg_per_run": 1.5, "max_in_run": 4, "runs_with_tools": 9}
+}
+```
+
+> 数据访问分两层：`core/database.py` 管连接与建表，
+> `runtime/repositories.py` 管 SQL 与模型转换；三个存储只是业务语义的外壳。
+
 ### 多 Agent 协作
 
 主 Agent 可以把子任务**委托**给其他已注册的 Agent，实现最小可用的消息路由：
@@ -320,6 +361,7 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | POST | `/api/v1/runs/stream` | 流式执行（SSE，逐段推送） |
 | GET | `/api/v1/runs` | 查询运行历史（支持过滤与分页） |
 | GET | `/api/v1/runs/{run_id}` | 查看单次运行详情（含消息轨迹） |
+| GET | `/api/v1/evaluation/summary` | 评估指标汇总（延迟 / token / 成功率 / 工具调用） |
 | GET | `/api/v1/tools` | 列出服务端已注册的工具 |
 | GET | `/api/v1/memories` | 列出长期记忆 |
 | POST | `/api/v1/memories` | 写入一条长期记忆 |

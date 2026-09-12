@@ -16,6 +16,24 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **数据持久化层重构**：统一 Database + Repository 两层
+  - `core/database.py`：`Database` 统一管理连接、建目录、建表与事务
+    —— 之前三个存储各写了一份 `mkdir + connect + executescript` 的重复逻辑
+  - `runtime/repositories.py`：`AgentRepository` / `RunRepository` / `MemoryRepository`
+    把 SQL 与「行 ↔ 模型」的转换从业务对象里搬出来
+  - 三个存储改为薄外壳：只保留业务语义（重名冲突、容量淘汰、检索词抽取），
+    **公开接口完全不变**，既有导入路径（`RunRecord` / `MemoryRecord`）也照常可用
+- **Agent 注册表默认持久化**：`AGENTOS_REGISTRY__PERSIST` 默认改为 `true`，
+  Agent 定义开箱即落盘 SQLite，不再需要显式开启
+- **运行历史支持排序**：`GET /api/v1/runs?order=asc|desc`（默认 `desc` 最新在前）
+- **Evaluation 基础模块**：
+  - `runtime/evaluation.py`：基于运行记录聚合四类指标
+    - 延迟：avg / p50 / p95 / max（线性插值分位数）
+    - token：prompt / completion / total / 每次运行均值
+    - 成功率：completed / 总数
+    - 工具调用：合计 / 均值 / 单次最多 / 多少运行用了工具
+  - `GET /api/v1/evaluation/summary`：支持按 `agent` 与 `since` 圈定范围
+  - 刻意**不做质量评估**（回答好坏、是否幻觉）—— 那需要评测集与裁判模型，属后续阶段
 - **SQLite 存储的健壮性修复**：目录或文件被外部删除后自动恢复
   - 此前三个存储（runs / memory / registry）只在 `__init__` 里建目录，
     运行期间手工清空 `.agentos/` 会让后续所有操作报
@@ -172,6 +190,10 @@
 - 列表接口不返回消息列表，避免历史查询把上下文撑爆；详情接口才带完整轨迹
 - 测试增至 364 个用例，新增 `tests/test_run_store.py`（22 个）
 - 测试增至 366 个用例，补充「目录被删」「db 文件被删」两个恢复场景
+- Repository 只依赖 `Database`，三个存储只依赖各自的 Repository，分层后
+  SQL 不再散落在业务对象里
+- 计数与合计走 SQL 聚合，分位数需要具体数值所以单独取耗时列
+- 测试增至 411 个用例，新增 `tests/test_database.py`（29 个）与 `tests/test_evaluation.py`（16 个）
 - 新增 autouse 夹具 `isolate_data_paths`：用环境变量把 runs / memory / registry
   三个落盘路径统一重定向到 `tmp_path`；只改 `settings` 夹具挡不住那些
   自行构造 `Settings(_env_file=None)` 的用例，仍会往工作区 `.agentos/` 写数据
