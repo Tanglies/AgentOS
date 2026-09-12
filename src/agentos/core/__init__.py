@@ -1,6 +1,7 @@
 """核心基础设施：配置、日志、请求上下文与异常体系。"""
 
 from agentos.core.config import (
+    ApiKeySettings,
     AuditSettings,
     AuthSettings,
     MemorySettings,
@@ -36,12 +37,14 @@ from agentos.core.exceptions import (
     LLMProviderError,
     LLMTimeoutError,
     NotFoundError,
+    PermissionDeniedError,
     ValidationError,
 )
 from agentos.core.logging import configure_logging, get_logger, redact
 
 __all__ = [
     "AgentOSError",
+    "ApiKeySettings",
     "AuditSettings",
     "AuthSettings",
     "AgentRuntimeError",
@@ -51,6 +54,7 @@ __all__ = [
     "LLMProviderError",
     "LLMTimeoutError",
     "NotFoundError",
+    "PermissionDeniedError",
     "MemorySettings",
     "RegistrySettings",
     "RunStoreSettings",

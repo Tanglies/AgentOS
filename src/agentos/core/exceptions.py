@@ -63,6 +63,14 @@ class ConflictError(AgentOSError):
     message = "Resource already exists"
 
 
+class PermissionDeniedError(AgentOSError):
+    """调用方没有执行该操作的权限。"""
+
+    code = "permission_denied"
+    status_code = 403
+    message = "permission denied"
+
+
 class LLMError(AgentOSError):
     """LLM 调用失败。"""
 

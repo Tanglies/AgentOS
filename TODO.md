@@ -29,18 +29,20 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 
 - [x] Agent 持久化（`SQLiteAgentRegistry`，**默认开启**；Repository 层重构完成）
 - [x] 运行记录持久化与历史查询（`RunStore` + `GET /api/v1/runs`，含过滤/分页/排序）
-- [ ] Tool 管理（注册、分类、权限绑定）
-- [ ] 权限系统（身份认证、配额、工具访问控制）
-  - [x] API Key 认证：`AGENTOS_AUTH__ENABLED` + `AGENTOS_AUTH__API_KEYS`，失败关闭 + 常量时间比较
+- [x] Tool 管理（注册、分类、权限绑定）
+  - [x] `Tool.required_permissions`：默认要求 `tool:execute`，Runtime 执行点强制校验
+- [~] 权限系统（身份认证、配额、工具访问控制）
+  - [x] API Key 认证：静态引导密钥 + SQLite 数据库密钥，失败关闭 + 常量时间比较
+  - [x] 权限模型：`资源:动作` 权限、路由级 `require(...)`、工具执行二次校验
+  - [x] API Key 管理：签发、列表、软吊销；明文仅返回一次，数据库只存 SHA-256
   - [ ] **账号体系（下一阶段重点，当前 API Key 只是过渡方案）**
     - [ ] 用户注册 / 登录：账号 + 密码（哈希存储，bcrypt 或 argon2）
     - [ ] 用户隔离：会话、长期记忆、运行记录按用户分区，互相不可见
     - [ ] **工作区隔离**：每个用户独立的 `workspace_root` 与 `.agentos/` 数据目录
     - [ ] 令牌机制：登录后签发 token（JWT 或服务端 session），替代静态 API Key
     - [ ] 数据归属：`session_id` / `memory_id` / `run_id` 绑定 owner，查询时强制过滤
-    - 说明：现有 API Key 认证是所有用户等价、无身份的，无法支撑多租户，故重构
   - [ ] 配额与限流：按用户统计调用量与速率
-  - [ ] 工具访问控制：按用户/角色限制可用工具
+  - [ ] 更细的工具访问控制：按用户/角色限制可用工具
 - [ ] API 完善（分页、过滤、批量操作）
 - [ ] 数据模型与迁移机制
   - [x] 统一 `Database` 模块 + Repository 层（`core/database.py`、`runtime/repositories.py`）

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
 
+from agentos.api.auth import get_current_identity
 from agentos.core.config import Settings
+from agentos.core.exceptions import PermissionDeniedError
 from agentos.llm.base import LLMClient
+from agentos.runtime.api_keys import ApiKeyStore, Permission
 from agentos.runtime.runtime import AgentRuntime
 
 
@@ -26,6 +29,40 @@ def get_llm_client(request: Request) -> LLMClient:
     return request.app.state.llm_client
 
 
+def get_api_key_store(request: Request) -> ApiKeyStore:
+    """从应用状态读取 API Key 存储。"""
+    store = getattr(request.app.state, "api_key_store", None)
+    if store is None:
+        raise PermissionDeniedError(
+            "api key management is disabled",
+            details={"hint": "enable AGENTOS_AUTH__ENABLED and AGENTOS_API_KEYS__ENABLED"},
+        )
+    return store
+
+
+def require(permission: Permission) -> Any:
+    """构造一个路由级权限依赖。
+
+    ``require`` 返回的是 ``Depends`` 对象，调用方应把它放进
+    ``APIRouter(... dependencies=[...])`` 或路由装饰器。认证关闭时放行，
+    保持本地开发与嵌入式运行不受影响；认证开启时缺少身份或权限即返回 403。
+    """
+
+    def _check(request: Request) -> None:
+        settings: Settings = request.app.state.settings
+        if not settings.auth.enabled:
+            return
+        identity = get_current_identity()
+        if identity is None or not identity.can(permission):
+            raise PermissionDeniedError(
+                "permission denied",
+                details={"required": permission.value},
+            )
+
+    return Depends(_check)
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 RuntimeDep = Annotated[AgentRuntime, Depends(get_runtime)]
 LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
+ApiKeyStoreDep = Annotated[ApiKeyStore, Depends(get_api_key_store)]

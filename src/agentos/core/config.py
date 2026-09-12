@@ -82,6 +82,18 @@ class RegistrySettings(BaseModel):
     db_path: str = ".agentos/agents.db"
 
 
+class ApiKeySettings(BaseModel):
+    """API Key 存储配置。
+
+    数据库只存密钥的 SHA-256 哈希，明文只在签发时返回一次。
+    ``AGENTOS_AUTH__API_KEYS`` 里的静态密钥视为管理员（拥有全部权限），
+    用于签发数据库密钥，解决「数据库里一把钥匙都没有」的引导问题。
+    """
+
+    enabled: bool = True
+    db_path: str = ".agentos/api_keys.db"
+
+
 class AuditSettings(BaseModel):
     """审计日志配置。
 
@@ -199,6 +211,7 @@ class Settings(BaseSettings):
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
     runs: RunStoreSettings = Field(default_factory=RunStoreSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)
+    api_keys: ApiKeySettings = Field(default_factory=ApiKeySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)

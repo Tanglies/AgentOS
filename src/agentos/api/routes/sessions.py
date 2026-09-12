@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Response, status
 
-from agentos.api.deps import RuntimeDep
+from agentos.api.deps import RuntimeDep, require
 from agentos.api.schemas import SessionDetail, SessionListResponse, SessionSummary
 from agentos.core.exceptions import NotFoundError
+from agentos.runtime.api_keys import Permission
 from agentos.runtime.memory import SessionState
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -25,19 +26,30 @@ def _require_session(session_id: str, runtime: RuntimeDep) -> SessionState:
     return state
 
 
-@router.get("", response_model=SessionListResponse, summary="列出全部会话")
+@router.get(
+    "",
+    response_model=SessionListResponse,
+    summary="列出全部会话",
+    dependencies=[require(Permission.SESSION_READ)],
+)
 async def list_sessions(runtime: RuntimeDep) -> SessionListResponse:
     items = [SessionSummary.from_state(state) for state in runtime.memory.list()]
     return SessionListResponse(items=items, total=len(items))
 
 
-@router.get("/{session_id}", response_model=SessionDetail, summary="获取会话详情")
+@router.get(
+    "/{session_id}",
+    response_model=SessionDetail,
+    summary="获取会话详情",
+    dependencies=[require(Permission.SESSION_READ)],
+)
 async def get_session(session_id: str, runtime: RuntimeDep) -> SessionDetail:
     return SessionDetail.from_state(_require_session(session_id, runtime))
 
 
 @router.delete(
-    "/{session_id}", status_code=status.HTTP_204_NO_CONTENT, summary="清除会话记忆"
+    "/{session_id}", status_code=status.HTTP_204_NO_CONTENT, summary="清除会话记忆",
+    dependencies=[require(Permission.SESSION_WRITE)],
 )
 async def delete_session(session_id: str, runtime: RuntimeDep) -> Response:
     _require_session(session_id, runtime)

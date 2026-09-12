@@ -24,6 +24,7 @@ from agentos.api.middleware import (
 )
 from agentos.api.routes import (
     agents,
+    apikeys,
     audit,
     evaluation,
     health,
@@ -36,6 +37,7 @@ from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
 from agentos.core.logging import configure_logging, get_logger
 from agentos.llm.factory import create_llm_client
+from agentos.runtime.api_keys import ApiKeyStore
 from agentos.runtime.audit import AuditLog
 from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
@@ -79,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.llm_client = llm_client
         app.state.runtime = runtime
         app.state.audit_log = audit_log
+        app.state.api_key_store = api_key_store
         logger.info(
             "application started",
             extra={
@@ -110,8 +113,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 中间件 add 的顺序决定执行顺序：后 add 的在外层。
     # 期望的执行顺序是 CORS → 请求上下文 → 认证 → 路由，
     # 这样 401 响应也会带上 request_id 并进入访问日志。
+    # 认证关闭时不必建库；静态配置密钥在没有数据库密钥时充当引导管理员
+    api_key_store = (
+        ApiKeyStore(resolved.api_keys)
+        if resolved.auth.enabled and resolved.api_keys.enabled
+        else None
+    )
     if resolved.auth.enabled:
-        app.add_middleware(APIKeyMiddleware, settings=resolved.auth)
+        app.add_middleware(
+            APIKeyMiddleware, settings=resolved.auth, store=api_key_store
+        )
         install_api_key_security_scheme(app, resolved.auth)
     app.add_middleware(RequestContextMiddleware)
     if resolved.api.cors_origins:
@@ -127,6 +138,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(agents.router, prefix=API_PREFIX)
+    app.include_router(apikeys.router, prefix=API_PREFIX)
     app.include_router(runs.router, prefix=API_PREFIX)
     app.include_router(tools.router, prefix=API_PREFIX)
     app.include_router(sessions.router, prefix=API_PREFIX)

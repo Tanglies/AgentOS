@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from agentos.api.deps import RuntimeDep, SettingsDep
+from agentos.api.deps import RuntimeDep, SettingsDep, require
 from agentos.api.schemas import (
     RunDetail,
     RunListResponse,
@@ -18,6 +18,7 @@ from agentos.api.schemas import (
     RunSummary,
 )
 from agentos.core.exceptions import AgentOSError, NotFoundError
+from agentos.runtime.api_keys import Permission
 from agentos.runtime.run_store import RunStatus
 from agentos.runtime.runtime import RunEvent
 
@@ -44,7 +45,12 @@ def _format_error(code: str, message: str, status_code: int) -> str:
     return f"event: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-@router.post("", response_model=RunResponse, summary="执行一次 Agent 运行")
+@router.post(
+    "",
+    response_model=RunResponse,
+    summary="执行一次 Agent 运行",
+    dependencies=[require(Permission.RUN_CREATE)],
+)
 async def create_run(
     payload: RunRequest, runtime: RuntimeDep, settings: SettingsDep
 ) -> RunResponse:
@@ -58,7 +64,11 @@ async def create_run(
     return RunResponse.from_result(result)
 
 
-@router.post("/stream", summary="流式执行一次 Agent 运行（SSE）")
+@router.post(
+    "/stream",
+    summary="流式执行一次 Agent 运行（SSE）",
+    dependencies=[require(Permission.RUN_CREATE)],
+)
 async def create_run_stream(
     payload: RunRequest, runtime: RuntimeDep, settings: SettingsDep
 ) -> StreamingResponse:
@@ -104,7 +114,12 @@ def _require_run_store(runtime: RuntimeDep) -> object:
     return store
 
 
-@router.get("", response_model=RunListResponse, summary="查询运行历史")
+@router.get(
+    "",
+    response_model=RunListResponse,
+    summary="查询运行历史",
+    dependencies=[require(Permission.RUN_READ)],
+)
 async def list_runs(
     runtime: RuntimeDep,
     agent: str | None = Query(default=None, description="按 Agent 名过滤"),
@@ -132,7 +147,12 @@ async def list_runs(
     )
 
 
-@router.get("/{run_id}", response_model=RunDetail, summary="查看运行详情")
+@router.get(
+    "/{run_id}",
+    response_model=RunDetail,
+    summary="查看运行详情",
+    dependencies=[require(Permission.RUN_READ)],
+)
 async def get_run(run_id: str, runtime: RuntimeDep) -> RunDetail:
     """返回单次运行的完整记录，含消息轨迹与 token 明细。"""
     store = _require_run_store(runtime)

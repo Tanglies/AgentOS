@@ -51,6 +51,19 @@ CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs (agent);
 CREATE INDEX IF NOT EXISTS idx_runs_session ON runs (session_id);
 """
 
+API_KEYS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_hash TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL UNIQUE,
+    permissions TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys (key_hash);
+"""
+
 AUDIT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +121,26 @@ class RunRecord(BaseModel):
     total_tokens: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     messages: list[Message] = Field(default_factory=list)
+
+
+class ApiKeyRecord(BaseModel):
+    """一条 API Key 记录。
+
+    **只保存 hash，不保存明文**。明文只在创建时返回一次，
+    之后无法从数据库还原 —— 丢失只能重新签发。
+    """
+
+    id: int | None = None
+    key_hash: str
+    name: str
+    permissions: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+    @property
+    def revoked(self) -> bool:
+        return self.revoked_at is not None
 
 
 class AuditStatus(StrEnum):
@@ -563,3 +596,88 @@ class AuditRepository:
 
     def clear(self) -> int:
         return self._db.execute("DELETE FROM audit_logs")
+
+
+class ApiKeyRepository:
+    """``api_keys`` 表的数据访问。"""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    @staticmethod
+    def _to_record(row: Any) -> ApiKeyRecord:
+        return ApiKeyRecord(
+            id=int(row["id"]),
+            key_hash=str(row["key_hash"]),
+            name=str(row["name"]),
+            permissions=list(json.loads(str(row["permissions"]))),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+            last_used_at=(
+                datetime.fromisoformat(str(row["last_used_at"]))
+                if row["last_used_at"]
+                else None
+            ),
+            revoked_at=(
+                datetime.fromisoformat(str(row["revoked_at"]))
+                if row["revoked_at"]
+                else None
+            ),
+        )
+
+    def add(self, record: ApiKeyRecord) -> ApiKeyRecord:
+        with self._db.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO api_keys "
+                "(key_hash, name, permissions, created_at, last_used_at, revoked_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    record.key_hash,
+                    record.name,
+                    json.dumps(record.permissions, ensure_ascii=False),
+                    record.created_at.isoformat(),
+                    record.last_used_at.isoformat() if record.last_used_at else None,
+                    record.revoked_at.isoformat() if record.revoked_at else None,
+                ),
+            )
+            return record.model_copy(update={"id": int(cursor.lastrowid or 0)})
+
+    def get_by_hash(self, key_hash: str) -> ApiKeyRecord | None:
+        row = self._db.query_one(
+            "SELECT * FROM api_keys WHERE key_hash = ?", (key_hash,)
+        )
+        return self._to_record(row) if row is not None else None
+
+    def get(self, key_id: int) -> ApiKeyRecord | None:
+        row = self._db.query_one("SELECT * FROM api_keys WHERE id = ?", (key_id,))
+        return self._to_record(row) if row is not None else None
+
+    def get_by_name(self, name: str) -> ApiKeyRecord | None:
+        row = self._db.query_one("SELECT * FROM api_keys WHERE name = ?", (name,))
+        return self._to_record(row) if row is not None else None
+
+    def list(self, *, include_revoked: bool = False) -> list[ApiKeyRecord]:
+        where = "" if include_revoked else "WHERE revoked_at IS NULL"
+        rows = self._db.query(f"SELECT * FROM api_keys {where} ORDER BY id")
+        return [self._to_record(row) for row in rows]
+
+    def touch(self, key_hash: str, *, used_at: datetime) -> None:
+        """记录一次成功使用的时间。"""
+        self._db.execute(
+            "UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?",
+            (used_at.isoformat(), key_hash),
+        )
+
+    def revoke(self, key_id: int, *, revoked_at: datetime) -> bool:
+        """吊销密钥（软删除，保留审计线索）。"""
+        return (
+            self._db.execute(
+                "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+                (revoked_at.isoformat(), key_id),
+            )
+            > 0
+        )
+
+    def count(self, *, include_revoked: bool = False) -> int:
+        where = "" if include_revoked else "WHERE revoked_at IS NULL"
+        row = self._db.query_one(f"SELECT COUNT(*) AS total FROM api_keys {where}")
+        return int(row["total"]) if row is not None else 0

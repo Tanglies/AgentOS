@@ -101,30 +101,45 @@ Agent 定义仍在演进（工具、记忆、规划都会往上挂），JSON 列
 启动时如果默认 Agent 不存在会**补种一个**；已存在的不会被覆盖，
 所以你自定义过的默认助手不会被重启冲掉。
 
-### 认证（`auth`）
+### 认证与权限（`auth` + `api_keys`）
 
-API Key 认证。**默认关闭**以方便本地开发；对外暴露前必须开启。
+API Key 认证**默认关闭**以方便本地开发；对外暴露前必须开启。认证来源有两种：
+
+1. `AGENTOS_AUTH__API_KEYS` 配置的静态密钥：视为管理员（`*`），用于引导签发；
+2. `api_keys` 表中的数据库密钥：带名称、权限、创建时间、最后使用时间与吊销时间。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `AGENTOS_AUTH__ENABLED` | `false` | 是否开启认证 |
-| `AGENTOS_AUTH__API_KEYS` | `[]` | 合法密钥列表（JSON 数组，支持多密钥轮换） |
+| `AGENTOS_AUTH__API_KEYS` | `[]` | 静态引导密钥列表（JSON 数组） |
 | `AGENTOS_AUTH__HEADER_NAME` | `X-API-Key` | 承载密钥的请求头名 |
 | `AGENTOS_AUTH__PUBLIC_PATHS` | `["/health","/health/ready","/docs","/redoc","/openapi.json"]` | 免认证路径 |
+| `AGENTOS_API_KEYS__ENABLED` | `true` | 是否启用数据库密钥存储与管理接口 |
+| `AGENTOS_API_KEYS__DB_PATH` | `.agentos/api_keys.db` | 密钥数据库文件路径 |
 
-行为要点：
+权限采用 `资源:动作` 命名，包含 `agent:read` / `agent:write` / `run:create` /
+`run:read` / `tool:read` / `tool:execute` / `session:read` / `session:write` /
+`memory:read` / `memory:write` / `evaluation:read` / `audit:read` /
+`apikey:admin`；`*` 表示全部权限。路由级依赖负责授权，工具执行点还会再次
+检查 `tool:execute`，确保模型无法绕过路由权限直接调用工具。
 
-- **失败关闭**：开启但未配置任何密钥时，**拒绝所有请求**，而不是退化成不校验
-- **常量时间比较**：用 `secrets.compare_digest` 避免通过响应时间反推密钥
-- **OPTIONS 放行**：CORS 预检不携带自定义请求头，必须放行否则浏览器侧全部失败
-- **401 也带 request_id**：认证中间件位于请求上下文内层，便于排查
+数据库只保存 SHA-256 哈希，明文只在 `POST /api/v1/api-keys` 响应中出现一次；
+列表接口不返回明文或哈希。吊销是软删除，认证会立即失效但保留审计记录。
+开启认证且没有任何可用密钥时，服务**拒绝所有请求**（fail closed）。
 
 ```powershell
 $env:AGENTOS_AUTH__ENABLED = "true"
-$env:AGENTOS_AUTH__API_KEYS = '["sk-your-key-1"]'
-# 之后所有业务请求都要带请求头
-curl.exe http://127.0.0.1:8000/api/v1/agents -H "X-API-Key: sk-your-key-1"
+$env:AGENTOS_AUTH__API_KEYS = '["sk-bootstrap-admin"]'
+# 用静态管理员签发普通密钥
+$body = '{"name":"worker","permissions":["run:read","tool:read","tool:execute"]}'
+curl.exe http://127.0.0.1:8000/api/v1/api-keys `
+  -H "X-API-Key: sk-bootstrap-admin" `
+  -H "Content-Type: application/json" `
+  -d $body
 ```
+
+当前 API Key 是平台级权限，尚未提供用户账号、配额与工作区隔离；这些能力在后续
+阶段实现前，不应把同一实例直接暴露给互不信任的用户。
 
 ### 记忆（`memory`）
 

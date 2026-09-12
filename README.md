@@ -174,30 +174,53 @@ registry = ToolRegistry([WeatherTool()])
 工具执行失败（工具不存在、参数非法、内部异常）不会中断运行，而是把错误文本回填给模型，
 让模型自行决定是否修正参数或向用户说明。
 
-### 认证（API Key）
+### 认证与权限（API Key）
 
-默认**关闭**，方便本地开发。对外暴露前务必开启：
+默认**关闭**，方便本地开发。对外暴露前必须开启。`AGENTOS_AUTH__API_KEYS`
+里的静态密钥视为**管理员**（拥有 `*`），只用于在没有数据库密钥时完成首次引导；
+日常调用应使用 `POST /api/v1/api-keys` 签发的数据库密钥。
 
 ```powershell
 $env:AGENTOS_AUTH__ENABLED = "true"
-$env:AGENTOS_AUTH__API_KEYS = '["sk-your-key"]'
-.\\.venv\\Scripts\\python.exe -m agentos serve --port 8000
+$env:AGENTOS_AUTH__API_KEYS = '["sk-bootstrap-admin"]'
+.\.venv\Scripts\python.exe -m agentos serve --port 8000
 ```
 
-之后所有业务请求都要携带请求头（健康探针与 `/docs` 免认证）：
+用静态管理员密钥签发一把普通密钥（明文只在创建响应里返回一次）：
 
 ```powershell
-curl.exe http://127.0.0.1:8000/api/v1/agents -H "X-API-Key: sk-your-key"
+$body = '{"name":"worker","permissions":["run:create","run:read","tool:read","tool:execute"]}'
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/api/v1/api-keys" `
+  -Method Post `
+  -Headers @{ "X-API-Key" = "sk-bootstrap-admin" } `
+  -ContentType "application/json" `
+  -Body $body
 ```
 
-失败时返回统一的错误结构：
+后续请求携带数据库密钥：
 
-```json
-{"error": {"code": "unauthorized", "message": "invalid or missing API key", "details": {"header": "X-API-Key"}}}
+```powershell
+curl.exe http://127.0.0.1:8000/api/v1/runs -H "X-API-Key: sk-agentos-..."
 ```
 
-> 开启但没配置任何密钥时，服务会**拒绝所有请求**（fail closed）——
-> 配置失误不应该变成安全漏洞。
+权限采用 `资源:动作` 命名：`agent:read` / `agent:write` / `run:create` /
+`run:read` / `tool:read` / `tool:execute` / `session:read` / `session:write` /
+`memory:read` / `memory:write` / `evaluation:read` / `audit:read` /
+`apikey:admin`。普通数据库密钥的默认权限不包含 `apikey:admin`；
+工具是否真正执行还会在 Runtime 执行点再次检查 `tool:execute`，不能只靠路由绕过。
+
+管理接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/api-keys` | 列出数据库密钥元数据，不返回明文或哈希 |
+| POST | `/api/v1/api-keys` | 签发密钥；明文只在本次响应返回 |
+| DELETE | `/api/v1/api-keys/{id}` | 软吊销密钥，保留审计记录 |
+
+密钥数据库默认是 `.agentos/api_keys.db`，只保存 SHA-256 哈希；吊销后立即拒绝认证。
+开启但没有任何可用密钥时，服务会**拒绝所有请求**（fail closed）。当前 API Key
+是平台级权限，不是用户隔离方案；账号、密码与工作区隔离按 `TODO.md` 后续实施。
 
 ### 运行历史与评估
 
@@ -364,6 +387,9 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | GET | `/api/v1/runs/{run_id}` | 查看单次运行详情（含消息轨迹） |
 | GET | `/api/v1/evaluation/summary` | 评估指标汇总（延迟 / token / 成功率 / 工具调用） |
 | GET | `/api/v1/audit` | 查询审计日志（支持过滤与排序） |
+| GET | `/api/v1/api-keys` | 列出 API Key 元数据（管理员） |
+| POST | `/api/v1/api-keys` | 签发 API Key，明文只返回一次（管理员） |
+| DELETE | `/api/v1/api-keys/{id}` | 吊销 API Key（管理员） |
 | GET | `/api/v1/tools` | 列出服务端已注册的工具 |
 | GET | `/api/v1/memories` | 列出长期记忆 |
 | POST | `/api/v1/memories` | 写入一条长期记忆 |

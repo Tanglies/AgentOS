@@ -25,17 +25,57 @@ from __future__ import annotations
 import inspect
 import json
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from typing import Any
 
 from pydantic import BaseModel
 
 from agentos.core.context import bind
-from agentos.core.exceptions import ConflictError, NotFoundError, ValidationError
+from agentos.core.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from agentos.core.logging import get_logger
 from agentos.llm.base import ToolCall, ToolSpec
 
 logger = get_logger(__name__)
+
+PermissionChecker = Callable[[str], bool]
+
+_PERMISSION_CHECKER: ContextVar[PermissionChecker | None] = ContextVar(
+    "agentos_tool_permission_checker", default=None
+)
+
+
+@contextmanager
+def tool_permission_scope(checker: PermissionChecker | None) -> Iterator[None]:
+    """在认证请求中绑定工具权限检查器。
+
+    检查器为 ``None`` 时表示当前不在 HTTP 认证上下文中（例如嵌入式
+    Runtime、单元测试或显式关闭认证），此时保持既有行为，不额外拦截。
+    """
+    token: Token[PermissionChecker | None] = _PERMISSION_CHECKER.set(checker)
+    try:
+        yield
+    finally:
+        _PERMISSION_CHECKER.reset(token)
+
+
+def _check_tool_permissions(required: Iterable[str]) -> None:
+    checker = _PERMISSION_CHECKER.get()
+    if checker is None:
+        return
+    denied = [permission for permission in required if not checker(permission)]
+    if denied:
+        raise PermissionDeniedError(
+            "tool execution permission denied",
+            details={"required": denied},
+        )
+
 
 _JSON_TYPES: dict[str, tuple[type, ...]] = {
     "string": (str,),
@@ -137,6 +177,7 @@ class Tool(ABC):
 
     name: str = ""
     description: str = ""
+    required_permissions: tuple[str, ...] = ("tool:execute",)
     parameters: dict[str, Any] = {"type": "object", "properties": {}}
 
     @abstractmethod
@@ -257,6 +298,8 @@ class ToolRegistry:
                 extra={"extra_fields": {"tool": tool_call.name, "call_id": tool_call.id}},
             )
             return self._error(tool_call, f"Error: {exc.message}")
+
+        _check_tool_permissions(tool.required_permissions)
 
         try:
             raw_arguments = json.loads(tool_call.arguments or "{}")

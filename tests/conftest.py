@@ -36,6 +36,8 @@ def isolate_data_paths(
     依赖 ``clean_agentos_env`` 保证先清空、后设置，顺序不会颠倒。
     """
     monkeypatch.setenv("AGENTOS_RUNS__DB_PATH", str(tmp_path / "runs.db"))
+    monkeypatch.setenv("AGENTOS_AUDIT__DB_PATH", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("AGENTOS_API_KEYS__DB_PATH", str(tmp_path / "api_keys.db"))
     monkeypatch.setenv("AGENTOS_MEMORY__LONG_TERM_DB_PATH", str(tmp_path / "memory.db"))
     monkeypatch.setenv("AGENTOS_REGISTRY__DB_PATH", str(tmp_path / "agents.db"))
     reset_settings_cache()

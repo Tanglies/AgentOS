@@ -7,6 +7,17 @@
 
 ### 新增
 
+- **API Key 权限系统（阶段 2 安全增强）**
+  - 新增 `runtime/api_keys.py`：`Permission` / `ApiKeyIdentity` / `ApiKeyStore`
+  - 静态配置密钥作为管理员引导，数据库密钥支持命名、权限、签发、列表与软吊销
+  - `api_keys` 表只保存 SHA-256 哈希；明文只在签发响应返回一次
+  - 新增路由级 `require(permission)`，所有业务路由接入最小权限检查
+  - 工具执行点校验 `tool:execute`，避免绕过路由直接执行工具
+  - 新增 `GET/POST /api/v1/api-keys` 与 `DELETE /api/v1/api-keys/{id}`
+  - 新增 24 个安全测试，覆盖密钥生命周期、权限边界与工具执行鉴权
+
+### 新增
+
 - **Tool Calling（阶段 1 首项）**：模型可通过工具与外部世界交互，Runtime 自动执行工具并回填结果
   - `runtime/tools.py`：`Tool` 抽象基类、`FunctionTool` 快捷封装、`ToolRegistry` 注册表与执行器
   - 参数校验：按工具声明的 JSON Schema 校验 `required` / `type` / `enum`，未引入额外依赖
@@ -210,7 +221,7 @@
 - 计数与合计走 SQL 聚合，分位数需要具体数值所以单独取耗时列
 - 测试增至 411 个用例，新增 `tests/test_database.py`（29 个）与 `tests/test_evaluation.py`（16 个）
 - 审计与运行记录分表存储：前者面向追责（量小、固定字段），后者面向排查（量大、含消息轨迹）
-- 测试增至 447 个用例，新增 `tests/test_observability.py`（14 个）与 `tests/test_audit.py`（22 个）
+- 测试增至 471 个用例，新增 `tests/test_observability.py`（14 个）、`tests/test_audit.py`（22 个）与 `tests/test_api_keys.py`（24 个）
 - 新增 autouse 夹具 `isolate_data_paths`：用环境变量把 runs / memory / registry
   三个落盘路径统一重定向到 `tmp_path`；只改 `settings` 夹具挡不住那些
   自行构造 `Settings(_env_file=None)` 的用例，仍会往工作区 `.agentos/` 写数据

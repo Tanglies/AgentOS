@@ -8,13 +8,19 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from agentos.api.deps import RuntimeDep
+from agentos.api.deps import RuntimeDep, require
 from agentos.api.schemas import ToolListResponse, ToolSummary
+from agentos.runtime.api_keys import Permission
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
 
-@router.get("", response_model=ToolListResponse, summary="列出全部工具")
+@router.get(
+    "",
+    response_model=ToolListResponse,
+    summary="列出全部工具",
+    dependencies=[require(Permission.TOOL_READ)],
+)
 async def list_tools(runtime: RuntimeDep) -> ToolListResponse:
     items = [ToolSummary.from_tool(tool) for tool in runtime.tools.list()]
     return ToolListResponse(items=items, total=len(items))

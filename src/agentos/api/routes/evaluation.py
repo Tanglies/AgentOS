@@ -10,8 +10,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from agentos.api.deps import RuntimeDep
+from agentos.api.deps import RuntimeDep, require
 from agentos.core.exceptions import NotFoundError
+from agentos.runtime.api_keys import Permission
 from agentos.runtime.evaluation import EvaluationSummary, Evaluator
 
 router = APIRouter(prefix="/evaluation", tags=["evaluation"])
@@ -28,7 +29,12 @@ def _require_evaluator(runtime: RuntimeDep) -> Evaluator:
     return Evaluator(store.repository)
 
 
-@router.get("/summary", response_model=EvaluationSummary, summary="评估指标汇总")
+@router.get(
+    "/summary",
+    response_model=EvaluationSummary,
+    summary="评估指标汇总",
+    dependencies=[require(Permission.EVALUATION_READ)],
+)
 async def get_summary(
     runtime: RuntimeDep,
     agent: Annotated[str | None, Query(description="只统计某个 Agent")] = None,

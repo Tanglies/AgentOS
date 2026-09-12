@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, Response, status
 
-from agentos.api.deps import RuntimeDep
+from agentos.api.deps import RuntimeDep, require
 from agentos.api.schemas import MemoryCreateRequest, MemoryListResponse, MemorySummary
 from agentos.core.exceptions import NotFoundError
+from agentos.runtime.api_keys import Permission
 from agentos.runtime.long_term_memory import LongTermMemory
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -27,7 +28,12 @@ def _require_memory(runtime: RuntimeDep) -> LongTermMemory:
     return memory
 
 
-@router.get("", response_model=MemoryListResponse, summary="列出长期记忆")
+@router.get(
+    "",
+    response_model=MemoryListResponse,
+    summary="列出长期记忆",
+    dependencies=[require(Permission.MEMORY_READ)],
+)
 async def list_memories(
     runtime: RuntimeDep, limit: int = Query(default=50, ge=1, le=500)
 ) -> MemoryListResponse:
@@ -41,6 +47,7 @@ async def list_memories(
     response_model=MemorySummary,
     status_code=status.HTTP_201_CREATED,
     summary="写入一条长期记忆",
+    dependencies=[require(Permission.MEMORY_WRITE)],
 )
 async def create_memory(
     payload: MemoryCreateRequest, runtime: RuntimeDep
@@ -51,7 +58,8 @@ async def create_memory(
 
 
 @router.delete(
-    "/{memory_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除一条长期记忆"
+    "/{memory_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除一条长期记忆",
+    dependencies=[require(Permission.MEMORY_WRITE)],
 )
 async def delete_memory(memory_id: int, runtime: RuntimeDep) -> Response:
     memory = _require_memory(runtime)

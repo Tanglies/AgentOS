@@ -10,8 +10,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from agentos.api.deps import RuntimeDep
+from agentos.api.deps import RuntimeDep, require
 from agentos.core.exceptions import NotFoundError
+from agentos.runtime.api_keys import Permission
 from agentos.runtime.repositories import AuditEntry, AuditStatus
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -27,7 +28,12 @@ def _require_audit(runtime: RuntimeDep):
     return audit
 
 
-@router.get("", response_model=list[AuditEntry], summary="查询审计日志")
+@router.get(
+    "",
+    response_model=list[AuditEntry],
+    summary="查询审计日志",
+    dependencies=[require(Permission.AUDIT_READ)],
+)
 async def list_audit(
     runtime: RuntimeDep,
     action: Annotated[str | None, Query(description="按动作过滤，如 agent.run")] = None,

@@ -1,26 +1,25 @@
-"""API Key 认证。
+"""API Key 认证与调用方身份。
 
-用一个纯 ASGI 中间件统一拦截所有 HTTP 请求，客户端通过请求头
-（默认 ``X-API-Key``）携带密钥。
+认证来源有两处：
 
-三条设计原则：
+1. **数据库密钥**（``api_keys`` 表）—— 带名称与权限，推荐方式
+2. **静态配置密钥**（``AGENTOS_AUTH__API_KEYS``）—— 视为管理员（``*``），
+   用于签发第一把数据库密钥，解决「数据库里一把钥匙都没有」的引导问题
 
-- **默认关闭**：本地开发不受影响；对外暴露时必须显式开启
-- **失败关闭**：开启但没配置任何密钥时，拒绝所有请求，而不是退化成不校验
-- **常量时间比较**：用 :func:`secrets.compare_digest` 避免通过响应时间反推密钥
+安全设计：
 
-放行规则：
-
-- 非 HTTP 请求（如 lifespan）
-- ``OPTIONS`` 预检请求 —— 浏览器不会在预检里带自定义请求头
-- ``public_paths`` 中列出的路径（健康探针与文档）
+- 数据库只存 SHA-256 哈希，明文只在签发时返回一次
+- 校验用常量时间比较，避免通过响应时间差反推密钥
+- 开启但没有任何可用密钥时**拒绝一切**（fail closed），配置失误不会变成未授权访问
+- 认证成功后绑定 ``actor``（密钥名称），日志与审计据此回答「谁」
 """
 
 from __future__ import annotations
 
 import hashlib
 import secrets
-from typing import TYPE_CHECKING, Any
+from contextvars import ContextVar
+from typing import Any
 
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
@@ -29,17 +28,132 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from agentos.core.config import AuthSettings
 from agentos.core.context import bind
 from agentos.core.logging import get_logger
-
-if TYPE_CHECKING:  # pragma: no cover
-    from fastapi import FastAPI
+from agentos.runtime.api_keys import ApiKeyIdentity, ApiKeyStore, Permission
+from agentos.runtime.tools import tool_permission_scope
 
 logger = get_logger(__name__)
 
 UNAUTHORIZED_CODE = "unauthorized"
 SECURITY_SCHEME_NAME = "APIKeyHeader"
 
+_identity: ContextVar[ApiKeyIdentity | None] = ContextVar(
+    "agentos_identity", default=None
+)
 
-def install_api_key_security_scheme(app: FastAPI, settings: AuthSettings) -> None:
+
+def fingerprint(value: str) -> str:
+    """返回密钥的短指纹，用于区分静态密钥，不可反推原文。"""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+def get_current_identity() -> ApiKeyIdentity | None:
+    """返回当前请求的调用方身份；认证关闭时为 ``None``。"""
+    return _identity.get()
+
+
+class APIKeyMiddleware:
+    """基于请求头的 API Key 认证中间件。"""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        settings: AuthSettings,
+        *,
+        store: ApiKeyStore | None = None,
+    ) -> None:
+        self.app = app
+        self._settings = settings
+        self._header = settings.header_name.lower()
+        self._store = store
+        # 静态配置密钥视为管理员，用于签发第一把数据库密钥
+        self._static_keys = tuple(
+            key.get_secret_value().encode("utf-8") for key in settings.api_keys
+        )
+        self._public_paths = frozenset(_normalize(path) for path in settings.public_paths)
+
+        if settings.enabled and not self._static_keys and not self._has_database_keys():
+            logger.error(
+                "auth enabled but no api keys available; every request will be rejected",
+                extra={"extra_fields": {"header": settings.header_name}},
+            )
+
+    def _has_database_keys(self) -> bool:
+        return self._store is not None and self._store.count() > 0
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if not self._settings.enabled or scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # CORS 预检不携带自定义请求头，必须放行，否则浏览器侧全部失败
+        if scope.get("method") == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+
+        if _normalize(scope.get("path", "")) in self._public_paths:
+            await self.app(scope, receive, send)
+            return
+
+        provided = Headers(scope=scope).get(self._header)
+        identity = self._authenticate(provided)
+        if identity is not None:
+            token = _identity.set(identity)
+            try:
+                # 把调用方身份绑进上下文，下游日志与审计都会带上它
+                with bind(actor=identity.name), tool_permission_scope(
+                    lambda permission: identity.can(Permission(permission))
+                ):
+                    await self.app(scope, receive, send)
+            finally:
+                _identity.reset(token)
+            return
+
+        await self._reject(scope, receive, send)
+
+    def _authenticate(self, provided: str | None) -> ApiKeyIdentity | None:
+        """先查数据库密钥，回退到静态配置密钥。"""
+        if not provided:
+            return None
+
+        if self._store is not None:
+            identity = self._store.authenticate(provided)
+            if identity is not None:
+                return identity
+
+        candidate = provided.encode("utf-8")
+        for key in self._static_keys:
+            if secrets.compare_digest(candidate, key):
+                return ApiKeyIdentity(
+                    name=f"config-{fingerprint(key.decode('utf-8'))}",
+                    permissions=frozenset({Permission.ALL.value}),
+                    source="config",
+                )
+        return None
+
+    async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
+        logger.warning(
+            "request rejected: invalid or missing api key",
+            extra={
+                "extra_fields": {
+                    "path": scope.get("path"),
+                    "method": scope.get("method"),
+                }
+            },
+        )
+        response = JSONResponse(
+            status_code=401,
+            content={
+                "error": {
+                    "code": UNAUTHORIZED_CODE,
+                    "message": "invalid or missing API key",
+                    "details": {"header": self._settings.header_name},
+                }
+            },
+        )
+        await response(scope, receive, send)
+
+
+def install_api_key_security_scheme(app: Any, settings: AuthSettings) -> None:
     """给 OpenAPI 补上 API Key 安全方案，让 Swagger UI 出现 Authorize 按钮。
 
     认证是用**中间件**实现的，路由上没有声明任何依赖，因此 FastAPI
@@ -70,95 +184,7 @@ def install_api_key_security_scheme(app: FastAPI, settings: AuthSettings) -> Non
     app.openapi = custom_openapi  # type: ignore[method-assign]
 
 
-class APIKeyMiddleware:
-    """基于请求头的 API Key 认证中间件。"""
-
-    def __init__(self, app: ASGIApp, settings: AuthSettings) -> None:
-        self.app = app
-        self._settings = settings
-        self._header = settings.header_name.lower()
-        # 预计算密钥字节与指纹：指纹用于审计日志标记「谁」，不泄露密钥本身
-        self._keys = tuple(
-            (
-                key.get_secret_value().encode("utf-8"),
-                fingerprint(key.get_secret_value()),
-            )
-            for key in settings.api_keys
-        )
-        self._public_paths = frozenset(_normalize(path) for path in settings.public_paths)
-
-        if settings.enabled and not self._keys:
-            logger.error(
-                "auth enabled but no api keys configured; every request will be rejected",
-                extra={"extra_fields": {"header": settings.header_name}},
-            )
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if not self._settings.enabled or scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        # CORS 预检不携带自定义请求头，必须放行，否则浏览器侧全部失败
-        if scope.get("method") == "OPTIONS":
-            await self.app(scope, receive, send)
-            return
-
-        if _normalize(scope.get("path", "")) in self._public_paths:
-            await self.app(scope, receive, send)
-            return
-
-        provided = Headers(scope=scope).get(self._header)
-        actor = self._match(provided) if provided else None
-        if actor is not None:
-            # 把调用方身份绑进上下文，下游日志与审计都会带上它
-            with bind(actor=actor):
-                await self.app(scope, receive, send)
-            return
-
-        await self._reject(scope, receive, send)
-
-    def _match(self, provided: str) -> str | None:
-        """匹配密钥，成功时返回指纹。
-
-        用 :func:`secrets.compare_digest` 做常量时间比较，
-        避免通过响应时间差逐字节反推密钥。
-        """
-        candidate = provided.encode("utf-8")
-        for key, fingerprint_value in self._keys:
-            if secrets.compare_digest(candidate, key):
-                return fingerprint_value
-        return None
-
-    async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
-        logger.warning(
-            "request rejected: invalid or missing api key",
-            extra={
-                "extra_fields": {
-                    "path": scope.get("path"),
-                    "method": scope.get("method"),
-                }
-            },
-        )
-        response = JSONResponse(
-            status_code=401,
-            content={
-                "error": {
-                    "code": UNAUTHORIZED_CODE,
-                    "message": "invalid or missing API key",
-                    "details": {"header": self._settings.header_name},
-                }
-            },
-        )
-        await response(scope, receive, send)
-
-
-def fingerprint(value: str) -> str:
-    """返回密钥的短指纹，用于审计与排查，不可反推原文。"""
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
-
-
 def _normalize(path: str) -> str:
     """去掉尾部斜杠，让 ``/health/`` 也能匹配 ``/health``。"""
     stripped = path.rstrip("/")
     return stripped or "/"
-

@@ -13,6 +13,7 @@ from agentos.runtime.long_term_memory import MemoryRecord
 from agentos.runtime.memory import SessionState
 from agentos.runtime.message import Message
 from agentos.runtime.planning import ExecutionPlan
+from agentos.runtime.repositories import ApiKeyRecord
 from agentos.runtime.run_store import RunRecord
 from agentos.runtime.runtime import RunResult
 from agentos.runtime.tools import Tool
@@ -284,3 +285,47 @@ class RunResponse(BaseModel):
             session_id=result.session_id,
             plan=result.plan,
         )
+
+
+class ApiKeyCreateRequest(BaseModel):
+    """签发 API Key 的请求体。"""
+
+    name: str = Field(min_length=1, max_length=64)
+    permissions: list[str] | None = Field(default=None, max_length=32)
+
+
+class ApiKeySummary(BaseModel):
+    """API Key 记录摘要（绝不包含明文与哈希）。"""
+
+    id: int
+    name: str
+    permissions: list[str] = Field(default_factory=list)
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+    @classmethod
+    def from_record(cls, record: ApiKeyRecord) -> ApiKeySummary:
+        if record.id is None:  # pragma: no cover - 已持久化记录必然有 id
+            raise ValueError("api key record has no id")
+        return cls(
+            id=record.id,
+            name=record.name,
+            permissions=list(record.permissions),
+            created_at=record.created_at,
+            last_used_at=record.last_used_at,
+            revoked_at=record.revoked_at,
+        )
+
+
+class ApiKeyCreateResponse(ApiKeySummary):
+    """签发响应；``key`` 是明文，只在本次响应中出现。"""
+
+    key: str
+
+
+class ApiKeyListResponse(BaseModel):
+    """API Key 列表响应。"""
+
+    items: list[ApiKeySummary]
+    total: int

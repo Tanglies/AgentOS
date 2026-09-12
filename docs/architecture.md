@@ -43,7 +43,9 @@
 | LLM 实现 | `llm/echo.py`, `llm/openai_compatible.py` | 回显客户端与 OpenAI 兼容 HTTP 客户端 |
 | LLM 工厂 | `llm/factory.py` | provider 注册表与实例化 |
 | 应用装配 | `api/app.py` | lifespan 建资源、挂载中间件、路由与异常处理 |
-| 认证 | `api/auth.py` | `APIKeyMiddleware`：请求头校验、失败关闭、常量时间比较 |
+| 认证 | `api/auth.py` | `APIKeyMiddleware`：静态/数据库密钥校验、失败关闭、身份绑定 |
+| API Key | `runtime/api_keys.py` | 密钥哈希、权限模型、签发、校验与吊销 |
+| 权限依赖 | `api/deps.py` | `require(permission)` 路由级鉴权；认证关闭时放行 |
 | 持久化注册表 | `runtime/sqlite_registry.py` | `SQLiteAgentRegistry`：Agent 定义落盘 |
 | 运行记录 | `runtime/run_store.py` | `RunStore`：运行历史落盘，支持过滤分页 |
 | 审计日志 | `runtime/audit.py` | `AuditLog`：谁/何时/做了什么/结果，上下文字段自动捕获 |
@@ -111,6 +113,9 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 认证默认关闭 | 本地开发的便利性优先；对外暴露时由部署方显式开启 |
 | 认证失败关闭 | 开启但没配密钥时拒绝一切，避免配置失误变成未授权访问 |
 | 认证位于请求上下文内层 | 401 响应也能带 `request_id` 并写入访问日志，便于排查 |
+| 数据库密钥只存哈希 | 密钥是高熵随机值，SHA-256 足够抵抗反推且适合每请求校验 |
+| 静态配置密钥只作管理员引导 | 新部署没有任何数据库密钥时仍需一个可签发第一把钥匙的入口 |
+| 路由权限 + 工具执行权限双重检查 | 防止绕过 HTTP 路由或模型直接构造工具调用 |
 | 子 Agent 无状态运行 | 父子共用会话记忆会让两个上下文互相污染，任务自包含更可预测 |
 
 ## 扩展点
@@ -125,5 +130,5 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 ## v0.1 边界
 
 阶段 1 已全部完成（Tool Calling、Planning、短期与长期记忆、Multi-Agent 委托、流式回复），
-阶段 2 已启动（API Key 认证已完成）。**尚未实现**：向量检索、配额与限流、
-工具级权限、Agent 与运行记录持久化、评测体系、指标与链路追踪、容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。
+阶段 2 已实现平台级 API Key、权限绑定与工具执行鉴权。**尚未实现**：用户账号与工作区隔离、
+配额与限流、向量检索、评测集与自动评分、指标导出与容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。
