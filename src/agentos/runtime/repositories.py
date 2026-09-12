@@ -51,6 +51,26 @@ CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs (agent);
 CREATE INDEX IF NOT EXISTS idx_runs_session ON runs (session_id);
 """
 
+AUDIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    status TEXT NOT NULL,
+    target TEXT,
+    actor TEXT,
+    trace_id TEXT,
+    run_id TEXT,
+    agent_name TEXT,
+    tool_name TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs (action);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs (actor);
+CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_logs (run_id);
+"""
+
 MEMORIES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +108,36 @@ class RunRecord(BaseModel):
     total_tokens: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     messages: list[Message] = Field(default_factory=list)
+
+
+class AuditStatus(StrEnum):
+    """审计结果。"""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+
+class AuditEntry(BaseModel):
+    """一条审计记录。
+
+    回答四个问题：**谁**（``actor``）、**什么时候**（``created_at``）、
+    **对什么做了什么**（``action`` + ``target``）、**结果如何**（``status``）。
+
+    其余字段（trace_id / run_id / agent_name / tool_name）用于把这条记录
+    挂回完整调用链，便于排查时串联。
+    """
+
+    id: int | None = None
+    action: str
+    status: AuditStatus = AuditStatus.SUCCESS
+    target: str | None = None
+    actor: str | None = None
+    trace_id: str | None = None
+    run_id: str | None = None
+    agent_name: str | None = None
+    tool_name: str | None = None
+    detail: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MemoryRecord(BaseModel):
@@ -410,3 +460,106 @@ class MemoryRepository:
     def count(self) -> int:
         row = self._db.query_one("SELECT COUNT(*) AS total FROM memories")
         return int(row["total"]) if row is not None else 0
+
+class AuditRepository:
+    """``audit_logs`` 表的数据访问。"""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    @staticmethod
+    def _to_entry(row: Any) -> AuditEntry:
+        return AuditEntry(
+            id=int(row["id"]),
+            action=str(row["action"]),
+            status=AuditStatus(str(row["status"])),
+            target=row["target"],
+            actor=row["actor"],
+            trace_id=row["trace_id"],
+            run_id=row["run_id"],
+            agent_name=row["agent_name"],
+            tool_name=row["tool_name"],
+            detail=str(row["detail"] or ""),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
+        )
+
+    def add(self, entry: AuditEntry) -> AuditEntry:
+        with self._db.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO audit_logs "
+                "(action, status, target, actor, trace_id, run_id, "
+                " agent_name, tool_name, detail, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry.action,
+                    entry.status.value,
+                    entry.target,
+                    entry.actor,
+                    entry.trace_id,
+                    entry.run_id,
+                    entry.agent_name,
+                    entry.tool_name,
+                    entry.detail,
+                    entry.created_at.isoformat(),
+                ),
+            )
+            entry_id = int(cursor.lastrowid or 0)
+        return entry.model_copy(update={"id": entry_id})
+
+    def list(
+        self,
+        *,
+        action: str | None = None,
+        actor: str | None = None,
+        run_id: str | None = None,
+        status: AuditStatus | None = None,
+        order: str = "desc",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[AuditEntry]:
+        where, params = _build_filter(
+            [
+                ("action = ?", action),
+                ("actor = ?", actor),
+                ("run_id = ?", run_id),
+                ("status = ?", status.value if status else None),
+            ]
+        )
+        direction = "ASC" if str(order).lower() == "asc" else "DESC"
+        rows = self._db.query(
+            f"SELECT * FROM audit_logs {where} "
+            f"ORDER BY created_at {direction}, id {direction} LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        )
+        return [self._to_entry(row) for row in rows]
+
+    def count(
+        self,
+        *,
+        action: str | None = None,
+        actor: str | None = None,
+        run_id: str | None = None,
+        status: AuditStatus | None = None,
+    ) -> int:
+        where, params = _build_filter(
+            [
+                ("action = ?", action),
+                ("actor = ?", actor),
+                ("run_id = ?", run_id),
+                ("status = ?", status.value if status else None),
+            ]
+        )
+        row = self._db.query_one(f"SELECT COUNT(*) AS total FROM audit_logs {where}", params)
+        return int(row["total"]) if row is not None else 0
+
+    def prune(self, keep: int) -> int:
+        """只保留最近 ``keep`` 条，返回删除条数。"""
+        return self._db.execute(
+            "DELETE FROM audit_logs WHERE id IN ("
+            "  SELECT id FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET ?"
+            ")",
+            (keep,),
+        )
+
+    def clear(self) -> int:
+        return self._db.execute("DELETE FROM audit_logs")

@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +27,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agentos.core.config import AuthSettings
+from agentos.core.context import bind
 from agentos.core.logging import get_logger
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -75,7 +77,14 @@ class APIKeyMiddleware:
         self.app = app
         self._settings = settings
         self._header = settings.header_name.lower()
-        self._keys = tuple(key.get_secret_value().encode("utf-8") for key in settings.api_keys)
+        # 预计算密钥字节与指纹：指纹用于审计日志标记「谁」，不泄露密钥本身
+        self._keys = tuple(
+            (
+                key.get_secret_value().encode("utf-8"),
+                fingerprint(key.get_secret_value()),
+            )
+            for key in settings.api_keys
+        )
         self._public_paths = frozenset(_normalize(path) for path in settings.public_paths)
 
         if settings.enabled and not self._keys:
@@ -99,16 +108,26 @@ class APIKeyMiddleware:
             return
 
         provided = Headers(scope=scope).get(self._header)
-        if provided and self._matches(provided):
-            await self.app(scope, receive, send)
+        actor = self._match(provided) if provided else None
+        if actor is not None:
+            # 把调用方身份绑进上下文，下游日志与审计都会带上它
+            with bind(actor=actor):
+                await self.app(scope, receive, send)
             return
 
         await self._reject(scope, receive, send)
 
-    def _matches(self, provided: str) -> bool:
-        """常量时间比较，避免通过响应时间差反推密钥。"""
+    def _match(self, provided: str) -> str | None:
+        """匹配密钥，成功时返回指纹。
+
+        用 :func:`secrets.compare_digest` 做常量时间比较，
+        避免通过响应时间差逐字节反推密钥。
+        """
         candidate = provided.encode("utf-8")
-        return any(secrets.compare_digest(candidate, key) for key in self._keys)
+        for key, fingerprint_value in self._keys:
+            if secrets.compare_digest(candidate, key):
+                return fingerprint_value
+        return None
 
     async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.warning(
@@ -131,6 +150,11 @@ class APIKeyMiddleware:
             },
         )
         await response(scope, receive, send)
+
+
+def fingerprint(value: str) -> str:
+    """返回密钥的短指纹，用于审计与排查，不可反推原文。"""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
 
 
 def _normalize(path: str) -> str:

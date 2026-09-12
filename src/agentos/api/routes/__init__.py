@@ -2,6 +2,7 @@
 
 from agentos.api.routes import (
     agents,
+    audit,
     evaluation,
     health,
     memories,
@@ -12,6 +13,7 @@ from agentos.api.routes import (
 
 __all__ = [
     "agents",
+    "audit",
     "evaluation",
     "health",
     "memories",

@@ -82,6 +82,18 @@ class RegistrySettings(BaseModel):
     db_path: str = ".agentos/agents.db"
 
 
+class AuditSettings(BaseModel):
+    """审计日志配置。
+
+    与运行记录分开存：运行记录面向排查（量大、含完整消息轨迹），
+    审计面向追责（量小、字段固定、需要长期保留）。
+    """
+
+    enabled: bool = True
+    db_path: str = ".agentos/audit.db"
+    max_records: int = Field(default=20_000, ge=1, le=1_000_000)
+
+
 class RunStoreSettings(BaseModel):
     """运行记录持久化配置。
 
@@ -186,6 +198,7 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
     runs: RunStoreSettings = Field(default_factory=RunStoreSettings)
+    audit: AuditSettings = Field(default_factory=AuditSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)

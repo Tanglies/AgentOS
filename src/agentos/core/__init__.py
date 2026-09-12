@@ -1,6 +1,7 @@
 """核心基础设施：配置、日志、请求上下文与异常体系。"""
 
 from agentos.core.config import (
+    AuditSettings,
     AuthSettings,
     MemorySettings,
     RegistrySettings,
@@ -11,13 +12,20 @@ from agentos.core.config import (
     reset_settings_cache,
 )
 from agentos.core.context import (
+    bind,
     current_context,
+    get_actor,
     get_request_id,
     get_run_id,
+    get_tool_name,
+    get_trace_id,
     new_id,
     request_context,
+    set_actor,
     set_agent_name,
     set_run_id,
+    set_tool_name,
+    set_trace_id,
 )
 from agentos.core.exceptions import (
     AgentOSError,
@@ -34,6 +42,7 @@ from agentos.core.logging import configure_logging, get_logger, redact
 
 __all__ = [
     "AgentOSError",
+    "AuditSettings",
     "AuthSettings",
     "AgentRuntimeError",
     "ConfigurationError",
@@ -48,16 +57,23 @@ __all__ = [
     "Settings",
     "ToolsSettings",
     "ValidationError",
+    "bind",
     "configure_logging",
     "current_context",
     "get_logger",
+    "get_actor",
     "get_request_id",
     "get_run_id",
+    "get_tool_name",
+    "get_trace_id",
     "get_settings",
     "new_id",
     "redact",
     "request_context",
     "reset_settings_cache",
+    "set_actor",
     "set_agent_name",
     "set_run_id",
+    "set_tool_name",
+    "set_trace_id",
 ]

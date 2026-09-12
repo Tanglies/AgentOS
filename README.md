@@ -14,6 +14,7 @@
 | 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页、排序 | ✅ v0.1 |
 | 数据访问层 | 统一 `Database` + Agent / Run / Memory 三个 Repository | ✅ v0.1 |
 | Evaluation | 延迟分位、token 用量、成功率、工具调用统计 | ✅ v0.1 |
+| 可观测性 | trace 贯穿全链路 + 审计日志（谁/何时/做了什么/结果） | ✅ v0.1 |
 | Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
@@ -362,6 +363,7 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | GET | `/api/v1/runs` | 查询运行历史（支持过滤与分页） |
 | GET | `/api/v1/runs/{run_id}` | 查看单次运行详情（含消息轨迹） |
 | GET | `/api/v1/evaluation/summary` | 评估指标汇总（延迟 / token / 成功率 / 工具调用） |
+| GET | `/api/v1/audit` | 查询审计日志（支持过滤与排序） |
 | GET | `/api/v1/tools` | 列出服务端已注册的工具 |
 | GET | `/api/v1/memories` | 列出长期记忆 |
 | POST | `/api/v1/memories` | 写入一条长期记忆 |
@@ -392,6 +394,7 @@ docs/             # 架构、配置与开发文档
 ## 文档索引
 
 - [架构设计](docs/architecture.md)
+- [可观测性](docs/observability.md)
 - [配置说明](docs/configuration.md)
 - [开发指南](docs/development.md)
 - [变更记录](CHANGELOG.md)

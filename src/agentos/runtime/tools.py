@@ -30,6 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from agentos.core.context import bind
 from agentos.core.exceptions import ConflictError, NotFoundError, ValidationError
 from agentos.core.logging import get_logger
 from agentos.llm.base import ToolCall, ToolSpec
@@ -240,7 +241,14 @@ class ToolRegistry:
 
         工具不存在、参数非法或执行抛错时，都转换成 ``is_error=True``
         的结果文本回填给模型，而不是让整次 Agent 运行失败。
+
+        整个过程绑定 ``tool_name``，让执行期间的日志（含失败）都能看出
+        是哪个工具 —— 否则一次运行调了多个工具时日志会混在一起。
         """
+        with bind(tool_name=tool_call.name):
+            return await self._execute(tool_call)
+
+    async def _execute(self, tool_call: ToolCall) -> ToolCallResult:
         try:
             tool = self.get(tool_call.name)
         except NotFoundError as exc:

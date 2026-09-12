@@ -24,6 +24,7 @@ from agentos.api.middleware import (
 )
 from agentos.api.routes import (
     agents,
+    audit,
     evaluation,
     health,
     memories,
@@ -35,6 +36,7 @@ from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
 from agentos.core.logging import configure_logging, get_logger
 from agentos.llm.factory import create_llm_client
+from agentos.runtime.audit import AuditLog
 from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
@@ -61,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         tool_registry = create_default_tool_registry(resolved.tools, long_term=long_term)
         run_store = RunStore(resolved.runs) if resolved.runs.enabled else None
+        audit_log = AuditLog(resolved.audit) if resolved.audit.enabled else None
         runtime = AgentRuntime(
             llm_client,
             settings=resolved.runtime,
@@ -71,9 +74,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             memory=memory,
             long_term=long_term,
             runs=run_store,
+            audit=audit_log,
         )
         app.state.llm_client = llm_client
         app.state.runtime = runtime
+        app.state.audit_log = audit_log
         logger.info(
             "application started",
             extra={
@@ -127,6 +132,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions.router, prefix=API_PREFIX)
     app.include_router(memories.router, prefix=API_PREFIX)
     app.include_router(evaluation.router, prefix=API_PREFIX)
+    app.include_router(audit.router, prefix=API_PREFIX)
 
     _register_exception_handlers(app)
     return app

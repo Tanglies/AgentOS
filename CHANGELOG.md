@@ -16,6 +16,21 @@
   - `OpenAICompatibleLLMClient`：请求体写入 `tools`，响应解析并归一化 `tool_calls`
   - Runtime 多轮循环：`_should_continue` 检测到工具调用即继续，`max_iterations` 兜底并记录 `tool_call_count`
   - API：新增 `GET /api/v1/tools`，`Agent.tools` 字段贯通注册与运行，`/health/ready` 返回工具数量
+- **可观测性：trace 贯穿与审计日志**
+  - 新增 `trace_id` / `tool_name` / `actor` 三个上下文字段，
+    与既有 `request_id` / `run_id` / `agent_name` 一起构成完整链路
+  - 上下文新增 `bind()` 上下文管理器，支持一次绑定多个字段并自动按相反顺序还原；
+    字段名拼错直接抛 `ValueError`，不静默忽略
+  - 请求中间件生成或透传 `X-Trace-ID`，响应头回显；
+    整段请求都在绑定内，访问日志因此也带上 trace_id
+  - 工具执行期间绑定 `tool_name`，一次运行调多个工具时日志不再混在一起
+  - 认证中间件在密钥匹配后绑定 `actor`（密钥的 SHA-256 前 12 位，不可反推）
+  - 新增 `runtime/audit.py` 与 `audit_logs` 表：记录「谁、什么时候、
+    对什么做了什么、结果如何」，四个动作 `agent.run` / `tool.execute` /
+    `agent.register` / `agent.unregister`
+  - 审计的上下文字段**全部自动从 contextvars 取**，调用方只需说明做了什么
+  - 新增 `GET /api/v1/audit`，支持按 action / actor / run_id / status 过滤与排序
+  - 新增 `docs/observability.md`
 - **数据持久化层重构**：统一 Database + Repository 两层
   - `core/database.py`：`Database` 统一管理连接、建目录、建表与事务
     —— 之前三个存储各写了一份 `mkdir + connect + executescript` 的重复逻辑
@@ -194,6 +209,8 @@
   SQL 不再散落在业务对象里
 - 计数与合计走 SQL 聚合，分位数需要具体数值所以单独取耗时列
 - 测试增至 411 个用例，新增 `tests/test_database.py`（29 个）与 `tests/test_evaluation.py`（16 个）
+- 审计与运行记录分表存储：前者面向追责（量小、固定字段），后者面向排查（量大、含消息轨迹）
+- 测试增至 447 个用例，新增 `tests/test_observability.py`（14 个）与 `tests/test_audit.py`（22 个）
 - 新增 autouse 夹具 `isolate_data_paths`：用环境变量把 runs / memory / registry
   三个落盘路径统一重定向到 `tmp_path`；只改 `settings` 夹具挡不住那些
   自行构造 `Settings(_env_file=None)` 的用例，仍会往工作区 `.agentos/` 写数据

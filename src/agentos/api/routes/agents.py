@@ -6,6 +6,7 @@ from fastapi import APIRouter, Response, status
 
 from agentos.api.deps import RuntimeDep
 from agentos.api.schemas import AgentCreateRequest, AgentListResponse, AgentSummary
+from agentos.runtime.audit import ACTION_AGENT_REGISTER, ACTION_AGENT_UNREGISTER
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -24,6 +25,10 @@ async def list_agents(runtime: RuntimeDep) -> AgentListResponse:
 )
 async def create_agent(payload: AgentCreateRequest, runtime: RuntimeDep) -> AgentSummary:
     agent = runtime.registry.register(payload.to_agent())
+    if runtime.audit is not None:
+        runtime.audit.record(
+            ACTION_AGENT_REGISTER, target=agent.name, detail=agent.description
+        )
     return AgentSummary.from_agent(agent)
 
 
@@ -35,4 +40,6 @@ async def get_agent(name: str, runtime: RuntimeDep) -> AgentSummary:
 @router.delete("/{name}", status_code=status.HTTP_204_NO_CONTENT, summary="注销 Agent")
 async def delete_agent(name: str, runtime: RuntimeDep) -> Response:
     runtime.registry.unregister(name)
+    if runtime.audit is not None:
+        runtime.audit.record(ACTION_AGENT_UNREGISTER, target=name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

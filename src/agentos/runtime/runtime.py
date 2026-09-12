@@ -37,6 +37,11 @@ from agentos.llm.base import (
 )
 from agentos.runtime.agent import Agent
 from agentos.runtime.agent_tools import DEFAULT_MAX_DEPTH, DelegateToAgentTool
+from agentos.runtime.audit import (
+    ACTION_AGENT_RUN,
+    ACTION_TOOL_EXECUTE,
+    AuditLog,
+)
 from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.long_term_memory import LongTermMemory
 from agentos.runtime.memory import MemoryStore
@@ -48,6 +53,7 @@ from agentos.runtime.planning import (
     set_plan,
 )
 from agentos.runtime.registry import AgentRegistry, build_registry
+from agentos.runtime.repositories import AuditStatus
 from agentos.runtime.run_store import RunStore
 from agentos.runtime.tools import ToolCallResult, ToolRegistry
 
@@ -107,6 +113,7 @@ class AgentRuntime:
         memory: MemoryStore | None = None,
         long_term: LongTermMemory | None = None,
         runs: RunStore | None = None,
+        audit: AuditLog | None = None,
         registry_db_path: str | None = None,
         enable_delegation: bool = True,
         max_delegation_depth: int = DEFAULT_MAX_DEPTH,
@@ -117,6 +124,7 @@ class AgentRuntime:
         self._memory = memory if memory is not None else MemoryStore()
         self._long_term = long_term
         self._runs = runs
+        self._audit = audit
 
         # 委托工具需要引用 Runtime 自身，只能在实例化过程中注册
         if enable_delegation:
@@ -159,6 +167,10 @@ class AgentRuntime:
     @property
     def runs(self) -> RunStore | None:
         return self._runs
+
+    @property
+    def audit(self) -> AuditLog | None:
+        return self._audit
 
     @property
     def settings(self) -> RuntimeSettings:
@@ -369,6 +381,17 @@ class AgentRuntime:
 
             if self._runs is not None:
                 self._runs.record(result, input_text=input_text)
+
+            if self._audit is not None:
+                self._audit.record(
+                    ACTION_AGENT_RUN,
+                    target=resolved.name,
+                    detail=(
+                        f"iterations={result.iterations} "
+                        f"tools={tool_call_count} "
+                        f"tokens={usage.total_tokens if usage else 0}"
+                    ),
+                )
                 logger.debug(
                     "session memory updated",
                     extra={
@@ -396,6 +419,13 @@ class AgentRuntime:
             logger.exception(
                 "agent run failed", extra={"extra_fields": {"agent": resolved.name}}
             )
+            if self._audit is not None:
+                self._audit.record(
+                    ACTION_AGENT_RUN,
+                    status=AuditStatus.FAILURE,
+                    target=resolved.name,
+                    detail=str(exc),
+                )
             if self._runs is not None:
                 self._runs.record_failure(
                     run_id=run_id,
@@ -478,7 +508,17 @@ class AgentRuntime:
         """
         results: list[ToolCallResult] = []
         for tool_call in tool_calls:
-            results.append(await self._tools.execute(tool_call))
+            result = await self._tools.execute(tool_call)
+            if self._audit is not None:
+                self._audit.record(
+                    ACTION_TOOL_EXECUTE,
+                    status=(
+                        AuditStatus.FAILURE if result.is_error else AuditStatus.SUCCESS
+                    ),
+                    target=result.name,
+                    detail=result.content[:200],
+                )
+            results.append(result)
         return results
 
     def _should_continue(self, response: LLMResponse, messages: Sequence[Message]) -> bool:

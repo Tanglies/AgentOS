@@ -49,6 +49,12 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 ## 阶段 3：工程能力
 
 - [ ] Observability：指标与链路追踪
+  - [x] 上下文链路：`trace_id` / `request_id` / `run_id` / `agent_name` / `tool_name` / `actor`
+  - [x] Audit Log：`agent.run` / `tool.execute` / `agent.register` / `agent.unregister`，
+        `GET /api/v1/audit` 支持过滤与排序
+  - [x] `docs/observability.md`
+  - [ ] 指标导出：Prometheus / OpenTelemetry
+  - [ ] 审计防篡改与保留期策略
 - [ ] Evaluation：评测集与自动评分
   - [x] 基础指标：延迟分位、token 用量、成功率、工具调用（`GET /api/v1/evaluation/summary`）
   - [ ] 评测集：构造用例集与期望输出

@@ -57,6 +57,21 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 | `AGENTOS_RUNTIME__MAX_ITERATIONS` | `8` | 单次运行的最大迭代轮数（1-64），超出抛 `AgentRuntimeError` |
 | `AGENTOS_RUNTIME__SYSTEM_PROMPT` | `You are AgentOS, a helpful AI agent.` | 默认助手的系统提示词 |
 
+### 审计日志（`audit`）
+
+记录「谁、什么时候、对什么做了什么、结果如何」。与运行记录分开存：
+运行记录面向排查（量大），审计面向追责（量小、字段固定、需长期保留）。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_AUDIT__ENABLED` | `true` | 是否记录审计 |
+| `AGENTOS_AUDIT__DB_PATH` | `.agentos/audit.db` | SQLite 文件路径 |
+| `AGENTOS_AUDIT__MAX_RECORDS` | `20000` | 保留最近 N 条（1-100万） |
+
+记录的动作：`agent.run` / `tool.execute` / `agent.register` / `agent.unregister`。
+所有上下文（actor / trace_id / run_id / agent_name / tool_name）**自动从
+contextvars 读取**，调用方只需说明做了什么。详见 [可观测性](observability.md)。
+
 ### 运行记录（`runs`）
 
 记录每次 Agent 运行的输入、输出、token 用量与消息轨迹，支持历史查询。
