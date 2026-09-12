@@ -54,7 +54,20 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）
   - [x] schema 版本表与增量迁移基础（`database/migrations/`，支持按版本幂等执行）
 
-## 阶段 3：工程能力
+## 阶段 3：多租户平台 ✅ Phase 3
+
+- [x] User / Workspace / Workspace Member 模型与 Repository
+- [x] UserService / WorkspaceService / Workspace API
+- [x] 请求上下文增加 `user_id` / `workspace_id`
+- [x] Agent / Run / Memory / API Key / Audit Workspace 隔离
+- [x] 长期 Memory 支持 `user` / `workspace` scope
+- [x] Tool Metadata、Workspace/Agent Tool Policy 与双层鉴权
+- [x] Quota、Usage、Rate Limit 与 429 错误
+- [x] Dashboard / Evaluation 按 Workspace 聚合
+- [x] 旧 SQLite 数据迁移到 default Workspace
+- [x] 多租户安全隔离回归测试
+
+## 阶段 4：工程能力
 
 - [ ] Observability：指标与链路追踪
   - [x] 上下文链路：`trace_id` / `request_id` / `run_id` / `agent_name` / `tool_name` / `actor`

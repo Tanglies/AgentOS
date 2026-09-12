@@ -120,7 +120,9 @@ API Key 认证**默认关闭**以方便本地开发；对外暴露前必须开�
 权限采用 `资源:动作` 命名，包含 `agent:read` / `agent:write` / `run:create` /
 `run:read` / `tool:read` / `tool:execute` / `session:read` / `session:write` /
 `memory:read` / `memory:write` / `evaluation:read` / `dashboard:read` /
-`audit:read` / `apikey:admin`；`*` 表示全部权限。路由级依赖负责授权，工具执行点还会再次
+`audit:read` / `user:read` / `user:write` / `workspace:read` / `workspace:write` /
+`quota:read` / `quota:write` / `usage:read` / `tool:admin` /
+`apikey:admin`；`*` 表示全部权限。路由级依赖负责授权，工具执行点还会再次
 检查 `tool:execute`，确保模型无法绕过路由权限直接调用工具。
 
 数据库只保存 SHA-256 哈希，明文只在 `POST /api/v1/api-keys` 响应中出现一次；
@@ -243,6 +245,20 @@ from agentos.llm import register_provider
 
 register_provider("my_provider", lambda settings: MyLLMClient(settings))
 ```
+
+## 多租户与配额
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_PLATFORM__DB_PATH` | `.agentos/platform.db` | User / Workspace / Tool Policy / Quota 元数据 |
+| `AGENTOS_QUOTA__DAILY_RUN_LIMIT` | `1000` | Workspace 每日 Run 上限 |
+| `AGENTOS_QUOTA__DAILY_TOKEN_LIMIT` | `1000000` | Workspace 每日 Token 上限 |
+| `AGENTOS_QUOTA__REQUESTS_PER_MINUTE` | `60` | 每分钟请求上限 |
+| `AGENTOS_QUOTA__MAX_ITERATIONS_PER_RUN` | `8` | 单次运行迭代上限 |
+| `AGENTOS_QUOTA__MAX_TOOL_CALLS_PER_RUN` | `10` | 单次运行工具调用上限 |
+
+认证成功后绑定 `user_id` / `workspace_id`。Tool 策略和 Quota 都按当前
+Workspace 读取，不能通过请求参数跨租户读取。
 
 ## 数据库与迁移
 

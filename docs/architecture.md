@@ -4,6 +4,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────┐
+│ User → Workspace → Agent → Runtime → Tool / Memory   │
 │ api       FastAPI 装配 / 中间件 / 路由 / DTO         │
 ├─────────────────────────────────────────────────────┤
 │ runtime   Agent / Message / AgentRuntime / Store     │
@@ -49,7 +50,12 @@
 | 应用装配 | `api/app.py` | lifespan 建资源、挂载中间件、路由与异常处理 |
 | 认证 | `api/auth.py` | `APIKeyMiddleware`：静态/数据库密钥校验、失败关闭、身份绑定 |
 | API Key | `runtime/api_keys.py` | 密钥哈希、权限模型、签发、校验与吊销 |
-| 权限依赖 | `api/deps.py` | `require(permission)` 路由级鉴权；认证关闭时放行 |
+| 权限依赖 | `api/deps.py` | `require(permission)`、RateLimit、租户服务依赖 |
+| 用户服务 | `runtime/services/user_service.py` | 平台用户生命周期 |
+| Workspace 服务 | `runtime/services/workspace_service.py` | Workspace 与成员权限 |
+| Tool 策略 | `runtime/services/tool_policy_service.py` | Workspace/Agent 可见性与工具授权 |
+| Quota/Usage | `runtime/services/quota_service.py` | 配额、用量和 RateLimit 定义 |
+| Tenant migration | `database/workspace_migrations.py` | 旧资源补列并归入 default Workspace |
 | 数据库连接 | `database/connection.py` | `Database` / `DatabaseManager`：连接、建目录、建表与迁移账本 |
 | 迁移机制 | `database/migrations/` | `Migration` 与 `MigrationRunner`，按版本幂等应用 |
 | Repository 基座 | `database/repository.py` | `Repository`、`:func:`build_filter`` 与共享参数化查询工具 |
@@ -150,5 +156,6 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 阶段 1 已全部完成（Tool Calling、Planning、短期与长期记忆、Multi-Agent 委托、流式回复），
 阶段 2 已完成 SQLite 持久化结构对齐、Agent 生命周期管理、Run 查询完善、
 Dashboard 只读接口、迁移账本、Repository 基座与 API Key 权限；阶段 3 已完成
+多租户 User / Workspace / 资源隔离、Tool Policy、Quota、Rate Limit、
 基础 Evaluation 与审计/链路追踪。**尚未实现**：用户账号与工作区隔离、
 配额与限流、向量检索、评测集与自动评分、Prometheus/OpenTelemetry 导出与容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。

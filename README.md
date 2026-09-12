@@ -9,7 +9,8 @@
 | 模块 | 能力 | 状态 |
 | --- | --- | --- |
 | HTTP 服务 | FastAPI 应用、统一错误响应、请求 ID、健康探针、OpenAPI 文档 | ✅ v0.1 |
-| 认证与权限 | API Key 中间件、数据库密钥、`资源:动作` 权限、工具执行鉴权 | ✅ v0.1 |
+| 多租户 | User / Workspace / Membership / 资源隔离 / 请求上下文租户信息 | ✅ Phase 3 |
+| 认证与权限 | API Key 中间件、数据库密钥、`资源:动作` 权限、工具双层鉴权 | ✅ Phase 3 |
 | Agent 持久化 | 默认 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
 | 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页、排序 | ✅ v0.1 |
 | 数据访问层 | `database` 包、迁移账本、Repository 基座 + Agent / Run / Memory / Audit / API Key 仓储 | ✅ v0.1 |
@@ -20,7 +21,8 @@
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
 | 日志系统 | 结构化日志（console / json）、请求上下文、敏感字段脱敏 | ✅ v0.1 |
 | Agent 生命周期 | 创建、分页查询、详情、删除，结构化字段持久化 | ✅ v0.1 |
-| Dashboard | 运行总览、工具调用统计、最近错误 | ✅ v0.1 |
+| Dashboard | 按 Workspace 聚合运行、工具、错误与配额使用量 | ✅ Phase 3 |
+| Quota / Rate Limit | Workspace 配额、Usage、进程内 sliding-window 限流 | ✅ Phase 3 |
 | Tool Calling | 工具注册、参数校验、调用与结果回填 | ✅ v0.1 |
 | 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
 | Planning | 任务分解、步骤跟踪、进度注入系统提示词 | ✅ v0.1 |
@@ -392,6 +394,21 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | --- | --- | --- |
 | GET | `/health` | 存活探针，返回版本、环境与运行时长 |
 | GET | `/health/ready` | 就绪探针，返回 LLM 提供方与已注册 Agent 数量 |
+| GET | `/api/v1/users` | 平台用户列表 |
+| POST | `/api/v1/users` | 创建平台用户 |
+| GET | `/api/v1/users/{id}` | 用户详情 |
+| GET | `/api/v1/workspaces` | 当前用户所属 Workspace |
+| POST | `/api/v1/workspaces` | 创建 Workspace |
+| GET | `/api/v1/workspaces/{id}` | Workspace 详情 |
+| PATCH | `/api/v1/workspaces/{id}` | 更新 Workspace |
+| DELETE | `/api/v1/workspaces/{id}` | 删除 Workspace |
+| GET/POST | `/api/v1/workspaces/{id}/members` | 成员列表 / 添加 |
+| DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
+| GET/PATCH | `/api/v1/quota` | Workspace 配额 |
+| GET | `/api/v1/usage` | Workspace 用量 |
+| GET/PATCH | `/api/v1/tools/{name}` | Workspace 工具策略 |
+| GET | `/api/v1/agents/{name}/tools` | Agent 工具可见性 |
+| PATCH | `/api/v1/agents/{name}/tools/{tool_name}` | Agent 工具覆盖 |
 | GET | `/api/v1/agents` | 分页列出 Agent，支持 `page` / `page_size` |
 | POST | `/api/v1/agents` | 创建 Agent |
 | GET | `/api/v1/agents/{name}` | 获取 Agent 完整详情 |
@@ -403,6 +420,7 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | GET | `/api/v1/dashboard/overview` | Dashboard 总览指标 |
 | GET | `/api/v1/dashboard/tools` | 工具调用统计 |
 | GET | `/api/v1/dashboard/errors` | 最近失败运行 |
+| GET | `/api/v1/dashboard/usage` | 当前 Workspace 配额使用量 |
 | GET | `/api/v1/evaluation/summary` | 评估指标汇总（延迟 / token / 成功率 / 工具调用） |
 | GET | `/api/v1/audit` | 查询审计日志（支持过滤与排序） |
 | GET | `/api/v1/api-keys` | 列出 API Key 元数据（管理员） |
@@ -432,7 +450,7 @@ src/agentos/
 ├── database/     # SQLite 连接、迁移、Repository 基座与持久化模型
 ├── evaluation/   # 评估指标、采集器与报告格式化
 ├── llm/          # LLM 客户端抽象、echo 与 OpenAI 兼容实现、工厂
-├── repositories/ # Agent / Run / Tool 规范 Repository 入口
+├── repositories/ # User / Workspace / Agent / Run / Tool Repository 入口
 └── runtime/      # Agent、Message、注册表、服务层与执行内核
     └── services/ # Agent 生命周期与 Dashboard 读模型服务
 tests/            # pytest 测试：配置 / 日志 / LLM / Runtime / API / 持久化 / 平台
@@ -442,6 +460,10 @@ docs/             # 架构、平台、配置、数据库、评估、可观测性
 ## 文档索引
 
 - [架构设计](docs/architecture.md)
+- [多租户平台](docs/multi-tenancy.md)
+- [Workspace](docs/workspaces.md)
+- [Tool 权限](docs/tool-permissions.md)
+- [配额与限流](docs/quotas.md)
 - [平台能力](docs/platform.md)
 - [可观测性](docs/observability.md)
 - [数据库与 Repository](docs/database.md)

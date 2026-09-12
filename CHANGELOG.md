@@ -7,6 +7,18 @@
 
 ### 新增
 
+- **Multi-Tenant Agent Platform（Phase 3）**
+  - 新增 users / workspaces / workspace_members 数据模型与 API
+  - 请求上下文、日志、Audit 增加 `user_id` / `workspace_id`
+  - Agent / Run / Memory / API Key / Audit / Dashboard / Evaluation 全部按 Workspace 隔离
+  - Agent 唯一约束迁移为 `(workspace_id, name)`
+  - Memory 支持 user scope 与 workspace scope
+  - 新增 tools / workspace_tools / agent_tools、风险等级和 ToolSpec 可见性过滤
+  - 新增 workspace_quotas、Usage API、Run 配额校验和 RateLimiter 429
+  - Dashboard 新增 `/dashboard/usage`
+  - 旧数据库自动迁入 default Workspace，无需删除数据库
+  - 新增 8 组多租户测试，测试总数增至 **573 passed**
+
 - **Agent Platform MVP（Prompt 第四轮）**
   - `agents` 表升级为结构化字段，并保留 `payload` 兼容旧数据库
   - 新增 `AgentService`：创建、分页列表、详情、删除和生命周期审计
