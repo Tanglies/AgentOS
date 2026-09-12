@@ -65,6 +65,7 @@ class Permission(StrEnum):
     MEMORY_READ = "memory:read"
     MEMORY_WRITE = "memory:write"
     EVALUATION_READ = "evaluation:read"
+    DASHBOARD_READ = "dashboard:read"
     AUDIT_READ = "audit:read"
     API_KEY_ADMIN = "apikey:admin"
 
@@ -85,6 +86,7 @@ DEFAULT_PERMISSIONS: tuple[str, ...] = (
     Permission.MEMORY_READ.value,
     Permission.MEMORY_WRITE.value,
     Permission.EVALUATION_READ.value,
+    Permission.DASHBOARD_READ.value,
     Permission.AUDIT_READ.value,
 )
 

@@ -149,6 +149,7 @@ class RunSummary(BaseModel):
     tool_call_count: int = 0
     finish_reason: str | None = None
     total_tokens: int = 0
+    token_usage: TokenUsage | None = None
     created_at: datetime
 
     @classmethod
@@ -166,6 +167,11 @@ class RunSummary(BaseModel):
             tool_call_count=record.tool_call_count,
             finish_reason=record.finish_reason,
             total_tokens=record.total_tokens,
+            token_usage=TokenUsage(
+                prompt_tokens=record.prompt_tokens,
+                completion_tokens=record.completion_tokens,
+                total_tokens=record.total_tokens,
+            ),
             created_at=record.created_at,
         )
 
@@ -188,12 +194,14 @@ class RunDetail(RunSummary):
 
 
 class RunListResponse(BaseModel):
-    """运行历史列表响应。"""
+    """运行历史列表响应，兼容 offset/limit 与 page/page_size。"""
 
     items: list[RunSummary]
     total: int
     limit: int
     offset: int
+    page: int = 1
+    page_size: int = 50
 
 
 class MemorySummary(BaseModel):
@@ -358,3 +366,24 @@ class ApiKeyListResponse(BaseModel):
 
     items: list[ApiKeySummary]
     total: int
+
+
+class DashboardOverviewResponse(BaseModel):
+    """Dashboard overview metrics."""
+
+    total_runs: int = 0
+    success_rate: float = 0.0
+    average_latency: float = 0.0
+    total_tokens: int = 0
+    active_agents: int = 0
+
+
+class DashboardErrorItem(BaseModel):
+    """One recent failed run for the dashboard."""
+
+    run_id: str
+    agent: str
+    status: str
+    error: str = ""
+    duration_ms: float = 0.0
+    created_at: datetime

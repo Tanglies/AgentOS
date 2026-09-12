@@ -13,6 +13,7 @@ from agentos.llm.base import LLMClient
 from agentos.runtime.api_keys import ApiKeyStore, Permission
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
+from agentos.runtime.services.dashboard_service import DashboardService
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -36,6 +37,17 @@ def get_agent_service(request: Request) -> AgentService:
     if service is None:
         raise PermissionDeniedError(
             "agent service is not initialized",
+            details={"hint": "create the application through create_app lifespan"},
+        )
+    return service
+
+
+def get_dashboard_service(request: Request) -> DashboardService:
+    """从应用状态读取 Dashboard 只读服务。"""
+    service = getattr(request.app.state, "dashboard_service", None)
+    if service is None:
+        raise PermissionDeniedError(
+            "dashboard service is not initialized",
             details={"hint": "create the application through create_app lifespan"},
         )
     return service
@@ -78,4 +90,5 @@ SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 RuntimeDep = Annotated[AgentRuntime, Depends(get_runtime)]
 LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
+DashboardServiceDep = Annotated[DashboardService, Depends(get_dashboard_service)]
 ApiKeyStoreDep = Annotated[ApiKeyStore, Depends(get_api_key_store)]

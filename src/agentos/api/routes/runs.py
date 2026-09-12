@@ -125,25 +125,42 @@ async def list_runs(
     agent: str | None = Query(default=None, description="按 Agent 名过滤"),
     session_id: str | None = Query(default=None, description="按会话过滤"),
     status: Annotated[RunStatus | None, Query(description="按状态过滤")] = None,
+    sort: Annotated[
+        str, Query(pattern="^(created_at|-created_at)$", description="????")
+    ] = "created_at",
     order: Annotated[str, Query(pattern="^(asc|desc)$", description="按时间排序")] = "desc",
+    page: int | None = Query(default=None, ge=1, description="页码，从 1 开始"),
+    page_size: int | None = Query(default=None, ge=1, le=500, description="每页数量"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> RunListResponse:
-    """按时间倒序返回运行记录（不含消息列表）。"""
+    """按时间返回运行记录，同时兼容 page/page_size 与 limit/offset。"""
     store = _require_run_store(runtime)
+    if page is not None or page_size is not None:
+        resolved_page = page or 1
+        resolved_page_size = page_size or limit
+        resolved_offset = (resolved_page - 1) * resolved_page_size
+    else:
+        resolved_page_size = limit
+        resolved_offset = offset
+        resolved_page = offset // limit + 1
+    if sort == "-created_at":
+        order = "desc"
     records = store.list(  # type: ignore[attr-defined]
         agent=agent,
         session_id=session_id,
         status=status,
         order=order,
-        limit=limit,
-        offset=offset,
+        limit=resolved_page_size,
+        offset=resolved_offset,
     )
     return RunListResponse(
         items=[RunSummary.from_record(record) for record in records],
         total=store.count(agent=agent, session_id=session_id, status=status),  # type: ignore[attr-defined]
-        limit=limit,
-        offset=offset,
+        limit=resolved_page_size,
+        offset=resolved_offset,
+        page=resolved_page,
+        page_size=resolved_page_size,
     )
 
 

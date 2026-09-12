@@ -59,6 +59,9 @@ class EvaluationSummary(BaseModel):
     latency: LatencyMetrics = Field(default_factory=LatencyMetrics)
     tokens: TokenMetrics = Field(default_factory=TokenMetrics)
     tool_calls: ToolCallMetrics = Field(default_factory=ToolCallMetrics)
+    average_latency: float = 0.0
+    average_tokens: float = 0.0
+    average_tool_calls: float = 0.0
     agent: str | None = None
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

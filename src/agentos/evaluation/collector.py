@@ -64,6 +64,9 @@ class Evaluator:
             latency=values["latency"],
             tokens=values["tokens"],
             tool_calls=values["tool_calls"],
+            average_latency=round(aggregate.avg_duration_ms, 3),
+            average_tokens=round(aggregate.avg_total_tokens, 2),
+            average_tool_calls=round(aggregate.avg_tool_calls, 2),
             agent=agent,
         )
 

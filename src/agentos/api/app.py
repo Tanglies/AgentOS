@@ -26,6 +26,7 @@ from agentos.api.routes import (
     agents,
     apikeys,
     audit,
+    dashboard,
     evaluation,
     health,
     memories,
@@ -45,6 +46,7 @@ from agentos.runtime.memory import MemoryStore
 from agentos.runtime.run_store import RunStore
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
+from agentos.runtime.services.dashboard_service import DashboardService
 
 logger = get_logger(__name__)
 
@@ -83,6 +85,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.runtime = runtime
         app.state.audit_log = audit_log
         app.state.agent_service = AgentService(runtime.registry, audit=audit_log)
+        app.state.dashboard_service = DashboardService(
+            runtime.registry,
+            runs=run_store,
+            audit=audit_log,
+        )
         app.state.api_key_store = api_key_store
         logger.info(
             "application started",
@@ -146,6 +153,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions.router, prefix=API_PREFIX)
     app.include_router(memories.router, prefix=API_PREFIX)
     app.include_router(evaluation.router, prefix=API_PREFIX)
+    app.include_router(dashboard.router, prefix=API_PREFIX)
     app.include_router(audit.router, prefix=API_PREFIX)
 
     _register_exception_handlers(app)
