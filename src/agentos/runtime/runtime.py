@@ -754,8 +754,6 @@ class AgentRuntime:
     def _build_options(self, agent: Agent) -> CompletionOptions:
         """把 Agent 的模型参数与租户可见工具合并成单次调用选项。"""
         options = agent.completion_options()
-        if not agent.tools:
-            return options
         names = list(agent.tools)
         if self._tool_policy is not None:
             names = self._tool_policy.visible_tool_names(
@@ -764,6 +762,10 @@ class AgentRuntime:
                 workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
                 agent_id=self._agent_record_id(agent.name),
             )
+        if not names:
+            if not agent.tools:
+                return options
+            return options.model_copy(update={"tools": []})
         return options.model_copy(update={"tools": self._tools.specs(names)})
 
     def _model_name(self, options: CompletionOptions | None) -> str:

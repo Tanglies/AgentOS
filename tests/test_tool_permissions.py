@@ -17,6 +17,7 @@ from agentos.runtime.builtin_tools import create_default_tool_registry
 from agentos.runtime.platform_store import PlatformStore
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.tool_policy_service import ToolPolicyService
+from agentos.runtime.sqlite_registry import SQLiteAgentRegistry
 from tenancy_support import create_tenant, tenant_app
 
 
@@ -135,3 +136,33 @@ async def test_forged_tool_call_cannot_bypass_workspace_policy(tmp_path: Path) -
     tool_messages = [message for message in result.messages if message.role == "tool"]
     assert tool_messages
     assert "permission denied" in tool_messages[0].content
+
+@pytest.mark.asyncio
+async def test_agent_tool_can_be_enabled_after_registration(tmp_path: Path) -> None:
+    """Agent-level overrides must work even when the Agent starts with no tools."""
+    store = PlatformStore(PlatformSettings(db_path=str(tmp_path / "platform.db")))
+    agent_registry = SQLiteAgentRegistry(str(tmp_path / "agents.db"))
+    agent_registry.register(Agent(name="chat"), workspace_id=1)
+    registry = create_default_tool_registry(ToolsSettings(allow_shell=False))
+    policy = ToolPolicyService(store.tools, store.workspace_tools, store.agent_tools)
+    policy.sync(registry)
+    policy.set_agent_tool(
+        agent_registry,
+        registry,
+        "chat",
+        "calculate",
+        enabled=True,
+        workspace_id=1,
+    )
+    client = _RecordingClient()
+    runtime = AgentRuntime(
+        client,
+        registry=agent_registry,
+        tools=registry,
+        tool_policy=policy,
+    )
+
+    with bind(workspace_id=1, user_id=1):
+        await runtime.run("chat", "hello")
+
+    assert "calculate" in client.tools_seen
