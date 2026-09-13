@@ -29,7 +29,11 @@ from agentos.core.context import (
     set_agent_name,
     set_run_id,
 )
-from agentos.core.exceptions import AgentRuntimeError, ValidationError
+from agentos.core.exceptions import (
+    AgentRuntimeError,
+    NotFoundError,
+    ValidationError,
+)
 from agentos.core.logging import get_logger
 from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.llm.base import (
@@ -691,11 +695,37 @@ class AgentRuntime:
     async def _run_tool_calls(
         self, tool_calls: Sequence[ToolCall], agent: Agent
     ) -> list[ToolCallResult]:
-        """Execute Tool calls sequentially and emit one Span per call."""
-        results: list[ToolCallResult] = []
-        for tool_call in tool_calls:
-            results.append(await self._execute_tool_call(tool_call, agent))
-        return results
+        """Run consecutive parallel-safe Tools concurrently and preserve order."""
+        results: list[ToolCallResult | None] = [None] * len(tool_calls)
+        index = 0
+        while index < len(tool_calls):
+            if self._is_parallel_safe(tool_calls[index].name):
+                batch: list[int] = []
+                while index < len(tool_calls) and self._is_parallel_safe(
+                    tool_calls[index].name
+                ):
+                    batch.append(index)
+                    index += 1
+                completed = await asyncio.gather(
+                    *[
+                        self._execute_tool_call(tool_calls[position], agent)
+                        for position in batch
+                    ]
+                )
+                for position, result in zip(batch, completed, strict=True):
+                    results[position] = result
+            else:
+                results[index] = await self._execute_tool_call(
+                    tool_calls[index], agent
+                )
+                index += 1
+        return [result for result in results if result is not None]
+
+    def _is_parallel_safe(self, tool_name: str) -> bool:
+        try:
+            return self._tools.get(tool_name).parallel_safe
+        except NotFoundError:
+            return False
 
     async def _execute_tool_call(
         self, tool_call: ToolCall, agent: Agent

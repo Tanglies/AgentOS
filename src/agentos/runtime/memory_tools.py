@@ -58,6 +58,7 @@ class RecallTool(Tool):
     )
     category = "memory"
     risk_level = "low"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {

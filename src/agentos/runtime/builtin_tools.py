@@ -82,6 +82,7 @@ class CalculateTool(Tool):
     description = "计算一个基础算术表达式，支持 + - * / // % ** 与括号。"
     category = "general"
     risk_level = "low"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {
@@ -115,6 +116,7 @@ class GetCurrentTimeTool(Tool):
     )
     category = "general"
     risk_level = "low"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {
@@ -149,4 +151,4 @@ def create_default_tool_registry(
     if long_term is not None:
         tools.extend(create_memory_tools(long_term))
     tools.extend(create_plan_tools())
-    return ToolRegistry(tools)
+    return ToolRegistry(tools, default_timeout_seconds=resolved.default_timeout_seconds)

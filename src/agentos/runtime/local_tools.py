@@ -66,6 +66,7 @@ class ListDirectoryTool(_SandboxedTool):
     description = "列出工作区内某个目录下的文件与子目录（不递归）。"
     category = "local"
     risk_level = "medium"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {
@@ -105,6 +106,7 @@ class ReadFileTool(_SandboxedTool):
     description = "读取工作区内文本文件的内容，超过大小上限会截断。"
     category = "local"
     risk_level = "medium"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {
@@ -141,6 +143,7 @@ class SearchTextTool(_SandboxedTool):
     description = "在工作区目录内按正则搜索文本，返回 文件:行号:内容。"
     category = "local"
     risk_level = "medium"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {

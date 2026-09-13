@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from abc import ABC, abstractmethod
@@ -187,6 +188,8 @@ class Tool(ABC):
     description: str = ""
     category: str = "general"
     risk_level: str = "low"
+    parallel_safe: bool = False
+    timeout_seconds: float | None = None
     required_permissions: tuple[str, ...] = ("tool:execute",)
     parameters: dict[str, Any] = {"type": "object", "properties": {}}
 
@@ -245,8 +248,14 @@ class ToolCallResult(BaseModel):
 class ToolRegistry:
     """进程内工具注册表。"""
 
-    def __init__(self, tools: Iterable[Tool] | None = None) -> None:
+    def __init__(
+        self,
+        tools: Iterable[Tool] | None = None,
+        *,
+        default_timeout_seconds: float | None = 30.0,
+    ) -> None:
         self._tools: dict[str, Tool] = {}
+        self._default_timeout_seconds = default_timeout_seconds
         for tool in tools or ():
             self.register(tool)
 
@@ -338,8 +347,29 @@ class ToolRegistry:
             )
             return self._error(tool_call, f"Error: {exc.message}")
 
+        timeout = tool.timeout_seconds or self._default_timeout_seconds
         try:
-            content = await tool.run(**arguments)
+            if timeout is None:
+                content = await tool.run(**arguments)
+            else:
+                content = await asyncio.wait_for(
+                    tool.run(**arguments), timeout=timeout
+                )
+        except TimeoutError:
+            logger.warning(
+                "tool execution timed out",
+                extra={
+                    "extra_fields": {
+                        "tool": tool_call.name,
+                        "call_id": tool_call.id,
+                        "timeout_seconds": timeout,
+                    }
+                },
+            )
+            return self._error(
+                tool_call,
+                f"Error: tool execution timed out after {timeout:g}s",
+            )
         except Exception as exc:  # noqa: BLE001 - 工具异常需转为可回填的文本
             logger.exception(
                 "tool execution failed",

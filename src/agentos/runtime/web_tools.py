@@ -146,6 +146,7 @@ class FetchUrlTool(Tool):
     )
     category = "network"
     risk_level = "medium"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {
@@ -229,6 +230,7 @@ class WebSearchTool(Tool):
     )
     category = "network"
     risk_level = "medium"
+    parallel_safe = True
     parameters = {
         "type": "object",
         "properties": {

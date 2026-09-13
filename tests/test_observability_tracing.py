@@ -11,7 +11,14 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from agentos.core.config import ObservabilitySettings
 from agentos.core.context import bind, get_otel_span_id, get_otel_trace_id
 from agentos.database.connection import Database
-from agentos.llm.base import CompletionOptions, LLMClient, LLMMessage, LLMResponse, StreamChunk, ToolCall
+from agentos.llm.base import (
+    CompletionOptions,
+    LLMClient,
+    LLMMessage,
+    LLMResponse,
+    StreamChunk,
+    ToolCall,
+)
 from agentos.observability.tracing import (
     configure_tracing,
     force_flush,

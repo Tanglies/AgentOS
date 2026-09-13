@@ -224,6 +224,7 @@ class ToolsSettings(BaseModel):
     max_output_chars: int = Field(default=16_000, gt=0)
     web_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     max_web_bytes: int = Field(default=512_000, gt=0)
+    default_timeout_seconds: float = Field(default=30.0, gt=0, le=600)
     web_search_api_url: str = "https://api.tavily.com/search"
     web_search_api_key: SecretStr | None = None
     web_search_max_results: int = Field(default=5, ge=1, le=20)
