@@ -122,6 +122,34 @@ class RunStore:
         self._repo.prune(self._settings.max_records, workspace_id=scope)
         return record
 
+    def record_cancelled(
+        self,
+        *,
+        run_id: str,
+        agent: str,
+        input_text: str,
+        session_id: str | None = None,
+        duration_ms: float = 0.0,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> RunRecord:
+        """Record a run cancelled because the client disconnected."""
+        scope = self._scope(workspace_id)
+        record = RunRecord(
+            run_id=run_id,
+            workspace_id=scope,
+            user_id=user_id if user_id is not None else get_user_id(),
+            agent=agent,
+            session_id=session_id,
+            status=RunStatus.CANCELLED,
+            input=input_text[:MAX_INPUT_CHARS],
+            error="cancelled",
+            duration_ms=duration_ms,
+        )
+        self._repo.add(record)
+        self._repo.prune(self._settings.max_records, workspace_id=scope)
+        return record
+
     def get(
         self, run_id: str, *, workspace_id: int | None = None
     ) -> RunRecord:

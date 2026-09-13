@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -90,6 +91,8 @@ async def create_run_stream(
                 if event.type == "error":
                     emitted_error = True
                 yield _format_sse(event)
+        except asyncio.CancelledError:
+            raise
         except AgentOSError as exc:
             # 生成器内部的异常早于任何事件时，补一个 error 事件再结束
             if not emitted_error:

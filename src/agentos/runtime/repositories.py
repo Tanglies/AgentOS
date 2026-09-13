@@ -132,6 +132,7 @@ class RunStatus(StrEnum):
 
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class RunRecord(BaseModel):

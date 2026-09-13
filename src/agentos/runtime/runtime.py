@@ -12,6 +12,7 @@ Tool Calling 已通过 :meth:`AgentRuntime._should_continue` 与
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Literal
@@ -259,6 +260,13 @@ class AgentRuntime:
                             },
                         )
                     yield event
+            except asyncio.CancelledError:
+                record_run(
+                    agent=agent_name,
+                    status="cancelled",
+                    duration_seconds=time.perf_counter() - started_at,
+                )
+                raise
             except Exception as exc:
                 record_run(
                     agent=agent_name,
@@ -507,6 +515,29 @@ class AgentRuntime:
                 },
             )
             yield RunEvent(type="end", result=result)
+        except asyncio.CancelledError:
+            logger.info(
+                "agent run cancelled",
+                extra={"extra_fields": {"agent": resolved.name}},
+            )
+            if self._audit is not None:
+                self._audit.record(
+                    ACTION_AGENT_RUN,
+                    status=AuditStatus.FAILURE,
+                    target=resolved.name,
+                    detail="cancelled",
+                )
+            if self._runs is not None:
+                self._runs.record_cancelled(
+                    run_id=run_id,
+                    agent=resolved.name,
+                    input_text=input_text,
+                    session_id=resolved_session,
+                    duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                    workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
+                    user_id=get_user_id(),
+                )
+            raise
         except Exception as exc:
             logger.exception(
                 "agent run failed", extra={"extra_fields": {"agent": resolved.name}}
