@@ -1,0 +1,4 @@
+﻿{"id":"tool-001","name":"basic calculation","input":"请计算 (12+8)*3","agent":"assistant","expected_output":"60","expected_tools":["calculate"],"tags":["tool_calling"]}
+{"id":"tool-002","name":"current time","input":"现在北京时间几点？","agent":"assistant","expected_tools":["get_current_time"],"tags":["tool_calling"]}
+{"id":"tool-003","name":"read workspace file","input":"读取 README.md 的前几行","agent":"assistant","expected_tools":["read_file"],"tags":["tool_calling"]}
+{"id":"tool-004","name":"search source","input":"在工作区搜索 DatabaseManager","agent":"assistant","expected_tools":["search_text"],"tags":["tool_calling"]}

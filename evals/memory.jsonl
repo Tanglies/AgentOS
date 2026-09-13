@@ -1,0 +1,4 @@
+﻿{"id":"memory-001","name":"remember preference","input":"请记住我偏好中文回答","agent":"assistant","expected_tools":["remember"],"tags":["memory"]}
+{"id":"memory-002","name":"recall preference","input":"我之前说过偏好吗？","agent":"assistant","expected_tools":["recall"],"tags":["memory"]}
+{"id":"memory-003","name":"workspace memory","input":"记住这个 Workspace 使用 Python 3.11","agent":"assistant","metadata":{"rules":[{"type":"max_latency_ms","value":30000}]},"tags":["memory"]}
+{"id":"memory-004","name":"user scope preference","input":"记住我的名字是小明","agent":"assistant","tags":["memory"]}

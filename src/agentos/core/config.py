@@ -88,6 +88,17 @@ class PlatformSettings(BaseModel):
     db_path: str = ".agentos/platform.db"
 
 
+class EvaluationSettings(BaseModel):
+    """Evaluation 2.0 configuration."""
+
+    db_path: str = ".agentos/evaluations.db"
+    max_records: int = Field(default=1000, ge=1, le=100_000)
+    max_concurrency: int = Field(default=4, ge=1, le=32)
+    dataset_root: str = "evals"
+    judge_enabled: bool = False
+    judge_model: str | None = None
+
+
 class QuotaSettings(BaseModel):
     """Default Workspace quotas and per-request rate limits."""
 
@@ -226,6 +237,7 @@ class Settings(BaseSettings):
     api: APISettings = Field(default_factory=APISettings)
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
     platform: PlatformSettings = Field(default_factory=PlatformSettings)
+    evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
     quota: QuotaSettings = Field(default_factory=QuotaSettings)
     runs: RunStoreSettings = Field(default_factory=RunStoreSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)

@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agentos.database.models import AgentRecord
+from agentos.evaluation.models import EvaluationResult, EvaluationRun
 from agentos.llm.base import TokenUsage
 from agentos.runtime.agent import AGENT_NAME_PATTERN, Agent
 from agentos.runtime.long_term_memory import MemoryRecord
@@ -605,3 +606,74 @@ class DashboardUsageResponse(BaseModel):
     requests_per_minute: int = 0
     max_iterations_per_run: int = 0
     max_tool_calls_per_run: int = 0
+
+class EvaluationRunRequest(BaseModel):
+    """Start a dataset evaluation."""
+
+    dataset: str = Field(min_length=1, max_length=256)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvaluationRunSummary(BaseModel):
+    """Evaluation run summary."""
+
+    id: str
+    workspace_id: int
+    user_id: int | None = None
+    dataset_name: str
+    status: str
+    total_cases: int = 0
+    completed_cases: int = 0
+    passed_cases: int = 0
+    failed_cases: int = 0
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    @classmethod
+    def from_run(cls, run: EvaluationRun) -> EvaluationRunSummary:
+        return cls(
+            id=run.id,
+            workspace_id=run.workspace_id,
+            user_id=run.user_id,
+            dataset_name=run.dataset_name,
+            status=run.status.value,
+            total_cases=run.total_cases,
+            completed_cases=run.completed_cases,
+            passed_cases=run.passed_cases,
+            failed_cases=run.failed_cases,
+            created_at=run.created_at,
+            started_at=run.started_at,
+            finished_at=run.finished_at,
+        )
+
+
+class EvaluationRunDetail(EvaluationRunSummary):
+    """Evaluation run detail with case results and report."""
+
+    dataset_path: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    results: list[EvaluationResult] = Field(default_factory=list)
+    report: dict[str, Any] | None = None
+    error: str | None = None
+
+    @classmethod
+    def from_run(cls, run: EvaluationRun) -> EvaluationRunDetail:
+        summary = EvaluationRunSummary.from_run(run)
+        return cls(
+            **summary.model_dump(),
+            dataset_path=run.dataset_path,
+            config=run.config,
+            results=run.results,
+            report=run.report,
+            error=run.error,
+        )
+
+
+class EvaluationRunListResponse(BaseModel):
+    """Evaluation run list."""
+
+    items: list[EvaluationRunSummary]
+    total: int
+    limit: int
+    offset: int

@@ -14,6 +14,7 @@ from agentos.runtime.api_keys import ApiKeyStore, Permission
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.evaluation_service import EvaluationService
 from agentos.runtime.services.quota_service import QuotaService, UsageService
 from agentos.runtime.services.run_service import RunService
 from agentos.runtime.services.tool_policy_service import ToolPolicyService
@@ -66,6 +67,14 @@ def get_workspace_service(request: Request) -> WorkspaceService:
             "workspace service is not initialized",
             details={"hint": "create the application through create_app lifespan"},
         )
+    return service
+
+
+def get_evaluation_service(request: Request) -> EvaluationService:
+    """Return the Evaluation 2.0 background service."""
+    service = getattr(request.app.state, "evaluation_service", None)
+    if service is None:
+        raise PermissionDeniedError("evaluation service is not initialized")
     return service
 
 
@@ -160,6 +169,7 @@ AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 DashboardServiceDep = Annotated[DashboardService, Depends(get_dashboard_service)]
 ToolPolicyServiceDep = Annotated[ToolPolicyService, Depends(get_tool_policy_service)]
 QuotaServiceDep = Annotated[QuotaService, Depends(get_quota_service)]
+EvaluationServiceDep = Annotated[EvaluationService, Depends(get_evaluation_service)]
 UsageServiceDep = Annotated[UsageService, Depends(get_usage_service)]
 RunServiceDep = Annotated[RunService, Depends(get_run_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]

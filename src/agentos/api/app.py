@@ -28,6 +28,7 @@ from agentos.api.routes import (
     audit,
     dashboard,
     evaluation,
+    evaluations,
     health,
     memories,
     quota,
@@ -41,6 +42,8 @@ from agentos.api.routes import (
 from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
 from agentos.core.logging import configure_logging, get_logger
+from agentos.evaluation.runner import EvaluationRunner
+from agentos.evaluation.store import EvaluationStore
 from agentos.llm.factory import create_llm_client
 from agentos.runtime.api_keys import ApiKeyStore
 from agentos.runtime.audit import AuditLog
@@ -53,6 +56,7 @@ from agentos.runtime.run_store import RunStore
 from agentos.runtime.runtime import AgentRuntime
 from agentos.runtime.services.agent_service import AgentService
 from agentos.runtime.services.dashboard_service import DashboardService
+from agentos.runtime.services.evaluation_service import EvaluationService
 from agentos.runtime.services.quota_service import QuotaService, RateLimitService, UsageService
 from agentos.runtime.services.run_service import RunService
 from agentos.runtime.services.tool_policy_service import ToolPolicyService
@@ -121,6 +125,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tool_policy=tool_policy,
         )
         run_service = RunService(runtime, quota_service)
+        evaluation_service = EvaluationService(
+            EvaluationStore(resolved.evaluation),
+            EvaluationRunner(
+                runtime,
+                max_concurrency=resolved.evaluation.max_concurrency,
+            ),
+            resolved.evaluation,
+        )
         app.state.llm_client = llm_client
         app.state.platform_store = platform_store
         app.state.user_service = user_service
@@ -130,6 +142,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.usage_service = usage_service
         app.state.rate_limit_service = rate_limit_service
         app.state.run_service = run_service
+        app.state.evaluation_service = evaluation_service
         app.state.runtime = runtime
         app.state.audit_log = audit_log
         app.state.agent_service = AgentService(runtime.registry, audit=audit_log)
@@ -152,6 +165,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await evaluation_service.close()
             await runtime.aclose()
             logger.info("application stopped")
 
@@ -206,6 +220,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions.router, prefix=API_PREFIX)
     app.include_router(memories.router, prefix=API_PREFIX)
     app.include_router(evaluation.router, prefix=API_PREFIX)
+    app.include_router(evaluations.router, prefix=API_PREFIX)
     app.include_router(dashboard.router, prefix=API_PREFIX)
     app.include_router(audit.router, prefix=API_PREFIX)
 

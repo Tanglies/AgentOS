@@ -1,6 +1,13 @@
 """Evaluation metrics, collectors, and report formatters."""
 
 from agentos.evaluation.collector import EvaluationCollector, Evaluator
+from agentos.evaluation.evaluators import (
+    ContainsEvaluator,
+    ExactMatchEvaluator,
+    ForbiddenToolEvaluator,
+    RuleEvaluator,
+    ToolCallEvaluator,
+)
 from agentos.evaluation.metrics import (
     EvaluationSummary,
     LatencyMetric,
@@ -24,6 +31,11 @@ from agentos.evaluation.report import EvaluationReport
 
 __all__ = [
     "EvaluationCase",
+    "ContainsEvaluator",
+    "ExactMatchEvaluator",
+    "ForbiddenToolEvaluator",
+    "RuleEvaluator",
+    "ToolCallEvaluator",
     "EvaluationCollector",
     "EvaluationDataset",
     "EvaluationReport",

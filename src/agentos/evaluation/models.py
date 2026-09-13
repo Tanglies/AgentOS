@@ -109,6 +109,7 @@ class EvaluationRun(BaseModel):
     user_id: int | None = None
     dataset_name: str
     dataset_path: str | None = None
+    cases: list[EvaluationCase] = Field(default_factory=list)
     status: EvaluationStatus = EvaluationStatus.QUEUED
     total_cases: int = 0
     completed_cases: int = 0

@@ -1,0 +1,4 @@
+﻿{"id":"planning-001","name":"create plan","input":"请制定一个三步实施计划","agent":"assistant","expected_tools":["create_plan"],"tags":["planning"]}
+{"id":"planning-002","name":"update plan","input":"把计划第一步标记完成","agent":"assistant","expected_tools":["update_plan_step"],"tags":["planning"]}
+{"id":"planning-003","name":"multi step plan","input":"规划数据库迁移、测试和发布","agent":"assistant","expected_tools":["create_plan"],"tags":["planning"]}
+{"id":"planning-004","name":"plan progress","input":"继续执行当前计划","agent":"assistant","metadata":{"rules":[{"type":"max_tokens","value":2000}]},"tags":["planning"]}

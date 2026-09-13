@@ -1,0 +1,4 @@
+﻿{"id":"multi-001","name":"delegate research","input":"委托 researcher 调研 Agent 平台能力","agent":"assistant","expected_tools":["delegate_to_agent"],"tags":["multi_agent"]}
+{"id":"multi-002","name":"delegate coding","input":"让 coder 检查代码","agent":"assistant","expected_tools":["delegate_to_agent"],"tags":["multi_agent"]}
+{"id":"multi-003","name":"single agent fallback","input":"直接回答什么是 Agent","agent":"assistant","forbidden_tools":["delegate_to_agent"],"tags":["multi_agent"]}
+{"id":"multi-004","name":"delegation depth","input":"委托子 Agent 再委托另一个 Agent","agent":"assistant","metadata":{"rules":[{"type":"tool_called","value":"delegate_to_agent"}]},"tags":["multi_agent"]}
