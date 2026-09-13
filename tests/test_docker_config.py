@@ -33,3 +33,14 @@ def test_compose_persists_sqlite_volume_and_health_port() -> None:
     assert "agentos-data:/app/.agentos" in text
     assert '"8000:8000"' in text
     assert 'AGENTOS_TOOLS__ALLOW_SHELL: "false"' in text
+
+
+def test_ci_runs_quality_and_container_build_without_real_models() -> None:
+    text = _text(".github/workflows/ci.yml")
+
+    assert 'python-version: "3.11"' in text
+    assert "python -m ruff check ." in text
+    assert "python -m pytest" in text
+    assert "docker build -t agentos:ci ." in text
+    assert "AGENTOS_LLM__PROVIDER: echo" in text
+    assert "secrets." not in text
