@@ -353,9 +353,8 @@ class ToolRegistry:
             if timeout is None:
                 content = await tool.run(**arguments)
             else:
-                content = await asyncio.wait_for(
-                    tool.run(**arguments), timeout=timeout
-                )
+                async with asyncio.timeout(timeout):
+                    content = await tool.run(**arguments)
         except TimeoutError:
             logger.warning(
                 "tool execution timed out",
