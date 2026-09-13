@@ -18,3 +18,5 @@ docs
 *.sqlite
 *.log
 secrets
+frontend/node_modules
+frontend/dist

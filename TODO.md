@@ -107,3 +107,14 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 - [x] 补文档：README 与 docs/ 全套架构、平台、评估、部署与可靠性文档
 - [ ] 依赖维护：及时跟进安全更新
 - [ ] 每个版本更新 CHANGELOG 与版本号
+
+## 阶段 5：Dashboard Frontend ✅ 初始版本
+
+- [x] Vue 3 / Vite / TypeScript / Element Plus / ECharts 工程
+- [x] Overview / Agents / Run History / Trace / Tools / Evaluation / Usage 页面
+- [x] `VITE_DEMO_MODE=true` Mock 模式
+- [x] 统一 `src/api` 封装，页面不直接拼 fetch
+- [x] Run Trace 安全展示：隐藏系统 Prompt、API Key 与敏感 Memory
+- [x] 前端 Dockerfile、Nginx 代理和 Compose 联调
+- [x] 组件 / API / Router 测试与 `npm run build`
+- [ ] 后续：截图资源、端到端浏览器测试、按需加载优化

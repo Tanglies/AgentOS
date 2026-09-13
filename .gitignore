@@ -226,3 +226,8 @@ secrets/
 # AgentOS 运行时数据（长期记忆数据库等）
 # 由本地运行时生成，不应提交
 .agentos/
+
+# Frontend
+node_modules/
+.vite/
+frontend/coverage/

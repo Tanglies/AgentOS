@@ -326,3 +326,8 @@
 - 容器化与 CI 部署（需确认后接入）
 
 [0.1.0]: https://github.com/Tanglies/AgentOS/releases/tag/v0.1.0
+### Frontend Dashboard
+
+- 新增 Vue 3 / Vite / TypeScript Dashboard，覆盖 Overview、Agents、Runs、Trace、Tools、Evaluation、Usage
+- 支持 `VITE_DEMO_MODE=true` Mock 数据和真实 AgentOS API 两种模式
+- 新增前端 Dockerfile、Nginx 反向代理与 Compose 联调服务

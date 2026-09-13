@@ -107,3 +107,11 @@ CI 使用 echo provider，不配置真实收费密钥，也不访问真实模型
 本机 Windows 环境未安装 Docker，Phase 4 只能做 Dockerfile/Compose/CI 的结构测试；
 镜像构建结果以 CI 的 `docker build` 为准。SQLite 适合单实例和轻量部署，多实例
 需要外部数据库与共享存储，后移到后续阶段。
+## Frontend Dashboard
+
+`docker compose up --build` will start both services:
+
+- `agentos`: FastAPI backend on port 8000
+- `frontend`: Nginx + Vue Dashboard on port 5173
+
+Nginx proxies `/api` and `/health` to `agentos:8000`. The frontend image defaults to `VITE_DEMO_MODE=true`, so GitHub visitors can explore the dashboard without a real LLM. Change the Compose build arg to `"false"` to use live backend data.

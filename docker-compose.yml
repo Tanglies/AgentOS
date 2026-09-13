@@ -17,5 +17,18 @@
       - agentos-data:/app/.agentos
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_DEMO_MODE: "true"
+        VITE_API_BASE_URL: /api/v1
+    image: agentos-dashboard:local
+    ports:
+      - "5173:80"
+    depends_on:
+      - agentos
+    restart: unless-stopped
+
 volumes:
   agentos-data:

@@ -494,4 +494,41 @@ docs/             # 架构、平台、配置、数据库、评估、可观测性
 
 ## 许可证
 
-[MIT](LICENSE)
+[MIT](LICENSE)# Frontend Dashboard
+
+`frontend/` 提供 Vue 3 + Vite + TypeScript + Element Plus + ECharts Dashboard，默认 Demo Mode 不依赖真实 LLM。
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env.local
+npm run dev
+```
+
+打开 <http://localhost:5173>。页面包括 Overview、Agents、Run History、Trace、Tools、Evaluation 和 Usage。
+
+```powershell
+npm run build
+npm test
+```
+
+完整前后端 Docker：
+
+```powershell
+docker compose up --build
+```
+
+打开 <http://localhost:5173>，Nginx 会代理 `/api` 和 `/health` 到后端。
+
+### Dashboard Preview
+
+![AgentOS Overview](docs/assets/dashboard-preview.png)
+
+更多页面截图：
+
+- [Agents](docs/assets/dashboard-agents.png)
+- [Run History](docs/assets/dashboard-runs.png)
+- [Execution Trace](docs/assets/dashboard-trace.png)
+- [Tool Analytics](docs/assets/dashboard-tools.png)
+- [Evaluation](docs/assets/dashboard-evaluation.png)
+- [Usage](docs/assets/dashboard-usage.png)
