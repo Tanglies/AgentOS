@@ -243,6 +243,7 @@ class ToolCallResult(BaseModel):
     name: str
     content: str
     is_error: bool = False
+    error_type: str | None = None
 
 
 class ToolRegistry:
@@ -369,6 +370,7 @@ class ToolRegistry:
             return self._error(
                 tool_call,
                 f"Error: tool execution timed out after {timeout:g}s",
+                error_type="timeout",
             )
         except Exception as exc:  # noqa: BLE001 - 工具异常需转为可回填的文本
             logger.exception(
@@ -394,12 +396,15 @@ class ToolRegistry:
         )
 
     @staticmethod
-    def _error(tool_call: ToolCall, content: str) -> ToolCallResult:
+    def _error(
+        tool_call: ToolCall, content: str, *, error_type: str = "execution"
+    ) -> ToolCallResult:
         return ToolCallResult(
             tool_call_id=tool_call.id,
             name=tool_call.name,
             content=content,
             is_error=True,
+            error_type=error_type,
         )
 
     def __contains__(self, name: object) -> bool:

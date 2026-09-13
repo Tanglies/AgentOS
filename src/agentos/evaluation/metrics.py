@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agentos.runtime.repositories import RunAggregate
+from agentos.runtime.repositories import ReliabilityMetrics, RunAggregate
 
 
 class Metric(ABC):
@@ -49,6 +49,13 @@ class ToolCallMetrics(BaseModel):
     runs_with_tools: int = 0
 
 
+class CostMetrics(BaseModel):
+    """Optional cost metrics; ``total`` is null when no price is configured."""
+
+    total: float | None = None
+    priced_runs: int = 0
+
+
 class EvaluationSummary(BaseModel):
     """Aggregated evaluation result for a set of runs."""
 
@@ -59,6 +66,8 @@ class EvaluationSummary(BaseModel):
     latency: LatencyMetrics = Field(default_factory=LatencyMetrics)
     tokens: TokenMetrics = Field(default_factory=TokenMetrics)
     tool_calls: ToolCallMetrics = Field(default_factory=ToolCallMetrics)
+    cost: CostMetrics = Field(default_factory=CostMetrics)
+    reliability: ReliabilityMetrics = Field(default_factory=ReliabilityMetrics)
     average_latency: float = 0.0
     average_tokens: float = 0.0
     average_tool_calls: float = 0.0
@@ -126,11 +135,37 @@ class ToolCallMetric(Metric):
         )
 
 
+class ReliabilityMetric(Metric):
+    """Built-in reusable reliability metric."""
+
+    name = "reliability"
+
+    def compute(
+        self, aggregate: RunAggregate, durations: list[float]
+    ) -> ReliabilityMetrics:
+        del durations
+        return aggregate.reliability
+
+
+class CostMetric(Metric):
+    """Built-in optional cost metric."""
+
+    name = "cost"
+
+    def compute(self, aggregate: RunAggregate, durations: list[float]) -> CostMetrics:
+        del durations
+        return CostMetrics(total=aggregate.estimated_cost, priced_runs=aggregate.priced_runs)
+
+
 __all__ = [
+    "CostMetric",
+    "CostMetrics",
     "EvaluationSummary",
     "LatencyMetric",
     "LatencyMetrics",
     "Metric",
+    "ReliabilityMetric",
+    "ReliabilityMetrics",
     "TokenMetric",
     "TokenMetrics",
     "ToolCallMetric",

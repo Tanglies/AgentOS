@@ -8,6 +8,7 @@ from agentos.api.deps import DashboardServiceDep, require
 from agentos.api.schemas import (
     DashboardErrorItem,
     DashboardOverviewResponse,
+    DashboardReliabilityResponse,
     DashboardUsageResponse,
 )
 from agentos.core.context import get_workspace_id
@@ -27,6 +28,23 @@ async def dashboard_overview(service: DashboardServiceDep) -> DashboardOverviewR
     """返回运行数、成功率、平均延迟、token 与活跃 Agent 数。"""
     return DashboardOverviewResponse(
         **service.overview(workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID)
+    )
+
+
+@router.get(
+    "/reliability",
+    response_model=DashboardReliabilityResponse,
+    summary="Dashboard 可靠性指标",
+    dependencies=[require(Permission.DASHBOARD_READ)],
+)
+async def dashboard_reliability(
+    service: DashboardServiceDep,
+) -> DashboardReliabilityResponse:
+    """Return timeout, tool, LLM, max-iteration, and cancellation rates."""
+    return DashboardReliabilityResponse(
+        **service.reliability(
+            workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID
+        )
     )
 
 

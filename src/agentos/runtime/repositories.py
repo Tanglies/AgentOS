@@ -154,6 +154,14 @@ class RunRecord(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    tool_error_count: int = 0
+    tool_timeout_count: int = 0
+    llm_call_count: int = 0
+    llm_error_count: int = 0
+    memory_recall_count: int = 0
+    memory_context_chars: int = 0
+    estimated_cost: float | None = None
+    max_iterations_reached: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     messages: list[Message] = Field(default_factory=list)
 
@@ -231,16 +239,34 @@ class MemoryRecord(BaseModel):
     created_at: datetime
 
 
+class ReliabilityMetrics(BaseModel):
+    """Rates computed from run-level reliability counters."""
+
+    timeout_rate: float = 0.0
+    tool_error_rate: float = 0.0
+    llm_error_rate: float = 0.0
+    max_iteration_rate: float = 0.0
+    cancelled_rate: float = 0.0
+
+
 class RunAggregate(BaseModel):
-    """运行记录的聚合结果，供 Evaluation 使用。"""
+    """运行记录的聚合结果，供 Dashboard / Evaluation 复用。"""
 
     runs: int = 0
     succeeded: int = 0
     failed: int = 0
+    cancelled: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
     total_tool_calls: int = 0
+    tool_errors: int = 0
+    tool_timeouts: int = 0
+    llm_calls: int = 0
+    llm_errors: int = 0
+    max_iteration_runs: int = 0
+    estimated_cost: float | None = None
+    priced_runs: int = 0
     total_duration_ms: float = 0.0
     max_tool_calls: int = 0
     runs_with_tools: int = 0
@@ -264,6 +290,23 @@ class RunAggregate(BaseModel):
     def avg_tool_calls(self) -> float:
         """平均工具调用次数，无记录时为 0。"""
         return self.total_tool_calls / self.runs if self.runs else 0.0
+
+    @property
+    def reliability(self) -> ReliabilityMetrics:
+        """Return reusable reliability rates for dashboards and evaluations."""
+        return ReliabilityMetrics(
+            timeout_rate=(
+                self.tool_timeouts / self.total_tool_calls
+                if self.total_tool_calls
+                else 0.0
+            ),
+            tool_error_rate=(
+                self.tool_errors / self.total_tool_calls if self.total_tool_calls else 0.0
+            ),
+            llm_error_rate=self.llm_errors / self.llm_calls if self.llm_calls else 0.0,
+            max_iteration_rate=self.max_iteration_runs / self.runs if self.runs else 0.0,
+            cancelled_rate=self.cancelled / self.runs if self.runs else 0.0,
+        )
 
 
 class AgentRepository(Repository):
@@ -721,10 +764,20 @@ class RunRepository(Repository):
             "  COUNT(*) AS runs,"
             "  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS succeeded,"
             "  SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,"
+            "  SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,"
             "  SUM(json_extract(payload, '$.prompt_tokens')) AS prompt_tokens,"
             "  SUM(json_extract(payload, '$.completion_tokens')) AS completion_tokens,"
             "  SUM(total_tokens) AS total_tokens,"
             "  SUM(tool_call_count) AS total_tool_calls,"
+            "  SUM(json_extract(payload, '$.tool_error_count')) AS tool_errors,"
+            "  SUM(json_extract(payload, '$.tool_timeout_count')) AS tool_timeouts,"
+            "  SUM(json_extract(payload, '$.llm_call_count')) AS llm_calls,"
+            "  SUM(json_extract(payload, '$.llm_error_count')) AS llm_errors,"
+            "  SUM(CASE WHEN json_extract(payload, '$.max_iterations_reached') = 1 "
+            "      THEN 1 ELSE 0 END) AS max_iteration_runs,"
+            "  SUM(json_extract(payload, '$.estimated_cost')) AS estimated_cost,"
+            "  SUM(CASE WHEN json_extract(payload, '$.estimated_cost') IS NOT NULL "
+            "      THEN 1 ELSE 0 END) AS priced_runs,"
             "  SUM(duration_ms) AS total_duration_ms,"
             "  MAX(tool_call_count) AS max_tool_calls,"
             "  SUM(CASE WHEN tool_call_count > 0 THEN 1 ELSE 0 END) AS runs_with_tools "
@@ -737,10 +790,20 @@ class RunRepository(Repository):
             runs=int(row["runs"] or 0),
             succeeded=int(row["succeeded"] or 0),
             failed=int(row["failed"] or 0),
+            cancelled=int(row["cancelled"] or 0),
             prompt_tokens=int(row["prompt_tokens"] or 0),
             completion_tokens=int(row["completion_tokens"] or 0),
             total_tokens=int(row["total_tokens"] or 0),
             total_tool_calls=int(row["total_tool_calls"] or 0),
+            tool_errors=int(row["tool_errors"] or 0),
+            tool_timeouts=int(row["tool_timeouts"] or 0),
+            llm_calls=int(row["llm_calls"] or 0),
+            llm_errors=int(row["llm_errors"] or 0),
+            max_iteration_runs=int(row["max_iteration_runs"] or 0),
+            estimated_cost=(
+                float(row["estimated_cost"]) if row["estimated_cost"] is not None else None
+            ),
+            priced_runs=int(row["priced_runs"] or 0),
             total_duration_ms=float(row["total_duration_ms"] or 0.0),
             max_tool_calls=int(row["max_tool_calls"] or 0),
             runs_with_tools=int(row["runs_with_tools"] or 0),

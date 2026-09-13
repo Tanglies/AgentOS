@@ -1,4 +1,4 @@
-﻿"""Prometheus metrics with explicit low-cardinality labels."""
+"""Prometheus metrics with explicit low-cardinality labels."""
 
 from __future__ import annotations
 
@@ -16,18 +16,20 @@ _LLM_DURATION: Histogram | None = None
 _LLM_TOKENS: Counter | None = None
 _TOOL_CALLS: Counter | None = None
 _TOOL_DURATION: Histogram | None = None
+_TOOL_TIMEOUTS: Counter | None = None
 
 
 def configure_metrics(settings: ObservabilitySettings) -> None:
     """Create metrics on a fresh registry according to settings."""
     global _SETTINGS, _REGISTRY, _RUNS, _RUN_DURATION, _RUN_ERRORS
     global _LLM_REQUESTS, _LLM_DURATION, _LLM_TOKENS, _TOOL_CALLS, _TOOL_DURATION
+    global _TOOL_TIMEOUTS
     _SETTINGS = settings
     _REGISTRY = CollectorRegistry()
     if not settings.prometheus_enabled:
         _RUNS = _RUN_DURATION = _RUN_ERRORS = None
         _LLM_REQUESTS = _LLM_DURATION = _LLM_TOKENS = None
-        _TOOL_CALLS = _TOOL_DURATION = None
+        _TOOL_CALLS = _TOOL_DURATION = _TOOL_TIMEOUTS = None
         return
     _RUNS = Counter("agentos_runs_total", "Agent runs", ["agent", "status"], registry=_REGISTRY)
     _RUN_DURATION = Histogram(
@@ -51,6 +53,9 @@ def configure_metrics(settings: ObservabilitySettings) -> None:
     _TOOL_DURATION = Histogram(
         "agentos_tool_duration_seconds", "Tool duration", ["tool"], registry=_REGISTRY
     )
+    _TOOL_TIMEOUTS = Counter(
+        "agentos_tool_timeouts_total", "Tool timeouts", ["tool"], registry=_REGISTRY
+    )
 
 
 def metrics_enabled() -> bool:
@@ -68,7 +73,15 @@ def record_run(
     status: str,
     duration_seconds: float,
     error_type: str | None = None,
+    tool_call_count: int = 0,
+    tool_error_count: int = 0,
+    tool_timeout_count: int = 0,
+    llm_call_count: int = 0,
+    llm_error_count: int = 0,
+    estimated_cost: float | None = None,
 ) -> None:
+    del tool_call_count, tool_error_count, tool_timeout_count, llm_call_count
+    del llm_error_count, estimated_cost
     if _RUNS is None or _RUN_DURATION is None:
         return
     _RUNS.labels(agent=agent, status=status).inc()
@@ -95,11 +108,19 @@ def record_llm(
         _LLM_TOKENS.labels(model=model, type="completion").inc(completion_tokens)
 
 
-def record_tool(*, tool: str, status: str, duration_seconds: float) -> None:
+def record_tool(
+    *,
+    tool: str,
+    status: str,
+    duration_seconds: float,
+    timeout: bool = False,
+) -> None:
     if _TOOL_CALLS is None or _TOOL_DURATION is None:
         return
     _TOOL_CALLS.labels(tool=tool, status=status).inc()
     _TOOL_DURATION.labels(tool=tool).observe(max(0.0, duration_seconds))
+    if timeout and _TOOL_TIMEOUTS is not None:
+        _TOOL_TIMEOUTS.labels(tool=tool).inc()
 
 
 __all__ = [

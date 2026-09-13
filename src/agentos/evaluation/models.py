@@ -83,6 +83,14 @@ class EvaluationResult(BaseModel):
     messages: list[Message] = Field(default_factory=list)
     latency_ms: float = 0.0
     token_usage: TokenUsage = Field(default_factory=TokenUsage)
+    tool_error_count: int = 0
+    tool_timeout_count: int = 0
+    llm_call_count: int = 0
+    llm_error_count: int = 0
+    memory_recall_count: int = 0
+    memory_context_chars: int = 0
+    estimated_cost: float | None = None
+    max_iterations_reached: bool = False
     scores: list[EvaluationScore] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

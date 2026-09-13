@@ -111,6 +111,14 @@ class EvaluationRunner:
                     messages=list(result.messages),
                     latency_ms=result.duration_ms,
                     token_usage=result.usage,
+                    tool_error_count=result.tool_error_count,
+                    tool_timeout_count=result.tool_timeout_count,
+                    llm_call_count=result.llm_call_count,
+                    llm_error_count=result.llm_error_count,
+                    memory_recall_count=result.memory_recall_count,
+                    memory_context_chars=result.memory_context_chars,
+                    estimated_cost=result.estimated_cost,
+                    max_iterations_reached=result.max_iterations_reached,
                     scores=scores,
                 )
             except Exception as exc:  # noqa: BLE001 - a case failure must not fail the dataset

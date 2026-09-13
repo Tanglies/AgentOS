@@ -40,6 +40,13 @@ class LoggingSettings(BaseModel):
         return normalized
 
 
+class ModelPricing(BaseModel):
+    """Model token prices in currency units per one million tokens."""
+
+    prompt_tokens_per_million: float = Field(default=0.0, ge=0.0)
+    completion_tokens_per_million: float = Field(default=0.0, ge=0.0)
+
+
 class LLMSettings(BaseModel):
     """LLM 提供方配置。"""
 
@@ -51,6 +58,7 @@ class LLMSettings(BaseModel):
     max_retries: int = Field(default=2, ge=0, le=10)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, gt=0)
+    pricing: dict[str, ModelPricing] = Field(default_factory=dict)
 
 
 class RuntimeSettings(BaseModel):
@@ -201,6 +209,8 @@ class MemorySettings(BaseModel):
     long_term_db_path: str = ".agentos/memory.db"
     long_term_auto_recall: bool = True
     long_term_recall_limit: int = Field(default=5, ge=1, le=20)
+    long_term_max_context_chars: int = Field(default=6000, ge=64, le=100_000)
+    long_term_max_context_tokens: int = Field(default=1500, ge=16, le=100_000)
 
 
 class ToolsSettings(BaseModel):
@@ -224,6 +234,9 @@ class ToolsSettings(BaseModel):
     max_output_chars: int = Field(default=16_000, gt=0)
     web_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     max_web_bytes: int = Field(default=512_000, gt=0)
+    web_cache_enabled: bool = True
+    web_cache_ttl_seconds: float = Field(default=300.0, gt=0, le=86_400)
+    web_cache_max_entries: int = Field(default=128, ge=1, le=10_000)
     default_timeout_seconds: float = Field(default=30.0, gt=0, le=600)
     web_search_api_url: str = "https://api.tavily.com/search"
     web_search_api_key: SecretStr | None = None

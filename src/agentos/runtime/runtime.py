@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel
 
-from agentos.core.config import RuntimeSettings
+from agentos.core.config import ModelPricing, RuntimeSettings
 from agentos.core.context import (
     get_user_id,
     get_workspace_id,
@@ -45,6 +46,7 @@ from agentos.llm.base import (
     TokenUsage,
     ToolCall,
 )
+from agentos.observability.cost import estimate_cost
 from agentos.observability.instrumentation import runtime_attributes, tool_attributes
 from agentos.observability.metrics import record_llm, record_run, record_tool
 from agentos.observability.tracing import set_span_attributes, start_span
@@ -56,7 +58,7 @@ from agentos.runtime.audit import (
     AuditLog,
 )
 from agentos.runtime.builtin_tools import create_default_tool_registry
-from agentos.runtime.long_term_memory import LongTermMemory
+from agentos.runtime.long_term_memory import LongTermMemory, MemoryContext
 from agentos.runtime.memory import MemoryStore
 from agentos.runtime.message import Message, MessageRole
 from agentos.runtime.planning import (
@@ -74,6 +76,19 @@ from agentos.runtime.tools import ToolCallResult, ToolRegistry
 logger = get_logger(__name__)
 
 
+@dataclass
+class _RunTracker:
+    """Mutable counters for one Runtime execution."""
+
+    llm_call_count: int = 0
+    llm_error_count: int = 0
+    tool_error_count: int = 0
+    tool_timeout_count: int = 0
+    memory_recall_count: int = 0
+    memory_context_chars: int = 0
+    max_iterations_reached: bool = False
+
+
 class RunResult(BaseModel):
     """一次 Agent 运行的完整结果。"""
 
@@ -88,6 +103,14 @@ class RunResult(BaseModel):
     duration_ms: float = 0.0
     finish_reason: str | None = None
     tool_call_count: int = 0
+    tool_error_count: int = 0
+    tool_timeout_count: int = 0
+    llm_call_count: int = 0
+    llm_error_count: int = 0
+    memory_recall_count: int = 0
+    memory_context_chars: int = 0
+    estimated_cost: float | None = None
+    max_iterations_reached: bool = False
     session_id: str | None = None
     plan: ExecutionPlan | None = None
 
@@ -128,6 +151,7 @@ class AgentRuntime:
         tools: ToolRegistry | None = None,
         memory: MemoryStore | None = None,
         long_term: LongTermMemory | None = None,
+        pricing: Mapping[str, ModelPricing] | None = None,
         runs: RunStore | None = None,
         audit: AuditLog | None = None,
         tool_policy: ToolPolicyService | None = None,
@@ -140,6 +164,7 @@ class AgentRuntime:
         self._tools = tools if tools is not None else create_default_tool_registry()
         self._memory = memory if memory is not None else MemoryStore()
         self._long_term = long_term
+        self._pricing = dict(pricing or {})
         self._runs = runs
         self._audit = audit
         self._tool_policy = tool_policy
@@ -241,6 +266,7 @@ class AgentRuntime:
         """Wrap the runtime loop in an ``agent.run`` OpenTelemetry Span."""
         agent_name = agent.name if isinstance(agent, Agent) else agent
         started_at = time.perf_counter()
+        final_result: RunResult | None = None
         with start_span(
             "agent.run", attributes=runtime_attributes(agent_name)
         ) as span:
@@ -255,12 +281,16 @@ class AgentRuntime:
                     max_tool_calls=max_tool_calls,
                 ):
                     if event.type == "end" and event.result is not None:
+                        final_result = event.result
                         set_span_attributes(
                             span,
                             {
                                 "iterations": event.result.iterations,
                                 "tool_call_count": event.result.tool_call_count,
                                 "duration_ms": event.result.duration_ms,
+                                "estimated_cost": event.result.estimated_cost,
+                                "memory_recall_count": event.result.memory_recall_count,
+                                "memory_context_chars": event.result.memory_context_chars,
                             },
                         )
                     yield event
@@ -280,10 +310,17 @@ class AgentRuntime:
                 )
                 raise
             else:
+                result = final_result
                 record_run(
                     agent=agent_name,
                     status="completed",
                     duration_seconds=time.perf_counter() - started_at,
+                    tool_call_count=result.tool_call_count if result else 0,
+                    tool_error_count=result.tool_error_count if result else 0,
+                    tool_timeout_count=result.tool_timeout_count if result else 0,
+                    llm_call_count=result.llm_call_count if result else 0,
+                    llm_error_count=result.llm_error_count if result else 0,
+                    estimated_cost=result.estimated_cost if result else None,
                 )
 
 
@@ -339,11 +376,17 @@ class AgentRuntime:
         )
         messages = resolved.build_messages(input_text, history=history)
         base_prompt = resolved.system_prompt
-        long_term_context = self._recall_long_term(input_text)
+        memory_context = self._recall_long_term(input_text)
+        long_term_context = memory_context.text
         self._rebuild_system_prompt(messages, base_prompt, long_term_context)
         # 本轮消息从 user 开始，用于运行结束后写回会话记忆
         new_turn_start = len(messages) - 1
         options = self._build_options(resolved)
+        model_name = self._model_name(options)
+        tracker = _RunTracker(
+            memory_recall_count=memory_context.recall_count,
+            memory_context_chars=memory_context.char_count,
+        )
         usage: TokenUsage | None = None
         response: LLMResponse | None = None
         iteration = 0
@@ -379,7 +422,9 @@ class AgentRuntime:
                 chunk_usage: TokenUsage | None = None
 
                 async for chunk in self._stream_llm(
-                    [message.to_llm_message() for message in messages], options=options
+                    [message.to_llm_message() for message in messages],
+                    options=options,
+                    tracker=tracker,
                 ):
                     if chunk.delta:
                         content_parts.append(chunk.delta)
@@ -394,7 +439,7 @@ class AgentRuntime:
 
                 response = LLMResponse(
                     content="".join(content_parts),
-                    model=resolved.model or "",
+                    model=model_name,
                     finish_reason=finish_reason,
                     usage=chunk_usage,
                     tool_calls=tool_calls or None,
@@ -435,7 +480,7 @@ class AgentRuntime:
                     yield RunEvent(type="tool_call", tool_call=call)
 
                 results = await self._run_tool_calls(
-                    pending_tool_calls, resolved
+                    pending_tool_calls, resolved, tracker
                 )
                 tool_call_count += len(results)
                 for tool_result in results:
@@ -448,6 +493,7 @@ class AgentRuntime:
                         )
                     )
             else:
+                tracker.max_iterations_reached = True
                 raise AgentRuntimeError(
                     f"agent '{resolved.name}' exceeded max_iterations={max_iterations}",
                     details={
@@ -477,6 +523,16 @@ class AgentRuntime:
                 duration_ms=round(duration_ms, 3),
                 finish_reason=response.finish_reason,
                 tool_call_count=tool_call_count,
+                tool_error_count=tracker.tool_error_count,
+                tool_timeout_count=tracker.tool_timeout_count,
+                llm_call_count=tracker.llm_call_count,
+                llm_error_count=tracker.llm_error_count,
+                memory_recall_count=tracker.memory_recall_count,
+                memory_context_chars=tracker.memory_context_chars,
+                estimated_cost=estimate_cost(
+                    usage, model=model_name, pricing=self._pricing
+                ),
+                max_iterations_reached=tracker.max_iterations_reached,
                 session_id=resolved_session,
                 plan=get_plan(),
             )
@@ -515,6 +571,13 @@ class AgentRuntime:
                         "duration_ms": result.duration_ms,
                         "total_tokens": usage.total_tokens if usage else 0,
                         "tool_call_count": tool_call_count,
+                        "tool_error_count": tracker.tool_error_count,
+                        "tool_timeout_count": tracker.tool_timeout_count,
+                        "llm_call_count": tracker.llm_call_count,
+                        "llm_error_count": tracker.llm_error_count,
+                        "memory_recall_count": tracker.memory_recall_count,
+                        "memory_context_chars": tracker.memory_context_chars,
+                        "estimated_cost": result.estimated_cost,
                     }
                 },
             )
@@ -540,6 +603,15 @@ class AgentRuntime:
                     duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
                     workspace_id=get_workspace_id() or DEFAULT_WORKSPACE_ID,
                     user_id=get_user_id(),
+                    tool_error_count=tracker.tool_error_count,
+                    tool_timeout_count=tracker.tool_timeout_count,
+                    llm_call_count=tracker.llm_call_count,
+                    llm_error_count=tracker.llm_error_count,
+                    memory_recall_count=tracker.memory_recall_count,
+                    memory_context_chars=tracker.memory_context_chars,
+                    estimated_cost=estimate_cost(
+                        usage, model=model_name, pricing=self._pricing
+                    ),
                 )
             raise
         except Exception as exc:
@@ -563,6 +635,16 @@ class AgentRuntime:
                     error=str(exc),
                     session_id=resolved_session,
                     duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+                    tool_error_count=tracker.tool_error_count,
+                    tool_timeout_count=tracker.tool_timeout_count,
+                    llm_call_count=tracker.llm_call_count,
+                    llm_error_count=tracker.llm_error_count,
+                    memory_recall_count=tracker.memory_recall_count,
+                    memory_context_chars=tracker.memory_context_chars,
+                    estimated_cost=estimate_cost(
+                        usage, model=model_name, pricing=self._pricing
+                    ),
+                    max_iterations_reached=tracker.max_iterations_reached,
                 )
             yield RunEvent(type="error", run_id=run_id, error=str(exc))
             raise
@@ -575,18 +657,11 @@ class AgentRuntime:
         """关闭底层 LLM 客户端。"""
         await self._llm.aclose()
 
-    def _recall_long_term(self, query: str) -> str | None:
-        """召回相关长期记忆，返回可注入系统提示词的文本。"""
+    def _recall_long_term(self, query: str) -> MemoryContext:
+        """Recall long-term memory within the configured prompt budget."""
         if self._long_term is None or not self._long_term.auto_recall:
-            return None
-
-        records = self._long_term.recall(query)
-        if not records:
-            return None
-
-        lines = ["[长期记忆] 以下是与当前问题相关的历史记录，供参考："]
-        lines.extend(f"- {record.content}" for record in records)
-        return "\n".join(lines)
+            return MemoryContext()
+        return self._long_term.build_context(query)
 
     @staticmethod
     def _rebuild_system_prompt(
@@ -637,13 +712,11 @@ class AgentRuntime:
         messages: Sequence[LLMMessage],
         *,
         options: CompletionOptions | None,
+        tracker: _RunTracker,
     ) -> AsyncIterator[StreamChunk]:
         """Stream from the model inside an ``llm.call`` Span."""
-        model = (
-            options.model
-            if options and options.model
-            else getattr(self._llm, "model", self._llm.provider)
-        )
+        model = self._model_name(options)
+        tracker.llm_call_count += 1
         started_at = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
@@ -662,6 +735,7 @@ class AgentRuntime:
                         completion_tokens += chunk.usage.completion_tokens
                     yield chunk
             except Exception:
+                tracker.llm_error_count += 1
                 record_llm(
                     model=str(model),
                     status="error",
@@ -692,10 +766,20 @@ class AgentRuntime:
             )
         return options.model_copy(update={"tools": self._tools.specs(names)})
 
+    def _model_name(self, options: CompletionOptions | None) -> str:
+        """Resolve the effective model name for metrics and cost estimation."""
+        if options is not None and options.model:
+            return options.model
+        return str(getattr(self._llm, "model", self._llm.provider))
+
     async def _run_tool_calls(
-        self, tool_calls: Sequence[ToolCall], agent: Agent
+        self,
+        tool_calls: Sequence[ToolCall],
+        agent: Agent,
+        tracker: _RunTracker | None = None,
     ) -> list[ToolCallResult]:
         """Run consecutive parallel-safe Tools concurrently and preserve order."""
+        resolved_tracker = tracker or _RunTracker()
         results: list[ToolCallResult | None] = [None] * len(tool_calls)
         index = 0
         while index < len(tool_calls):
@@ -708,7 +792,9 @@ class AgentRuntime:
                     index += 1
                 completed = await asyncio.gather(
                     *[
-                        self._execute_tool_call(tool_calls[position], agent)
+                        self._execute_tool_call(
+                            tool_calls[position], agent, resolved_tracker
+                        )
                         for position in batch
                     ]
                 )
@@ -716,7 +802,7 @@ class AgentRuntime:
                     results[position] = result
             else:
                 results[index] = await self._execute_tool_call(
-                    tool_calls[index], agent
+                    tool_calls[index], agent, resolved_tracker
                 )
                 index += 1
         return [result for result in results if result is not None]
@@ -728,9 +814,13 @@ class AgentRuntime:
             return False
 
     async def _execute_tool_call(
-        self, tool_call: ToolCall, agent: Agent
+        self,
+        tool_call: ToolCall,
+        agent: Agent,
+        tracker: _RunTracker | None = None,
     ) -> ToolCallResult:
         """Execute one Tool call with policy and tracing checks."""
+        resolved_tracker = tracker or _RunTracker()
         started_at = time.perf_counter()
         with start_span(
             "tool.call",
@@ -751,7 +841,9 @@ class AgentRuntime:
                             f"Error: tool execution permission denied: {tool_call.name}"
                         ),
                         is_error=True,
+                        error_type="policy_denied",
                     )
+                    resolved_tracker.tool_error_count += 1
                     set_span_attributes(
                         span, {"status": "denied", "error": True}
                     )
@@ -770,6 +862,10 @@ class AgentRuntime:
                     return result
 
             result = await self._tools.execute(tool_call)
+            if result.is_error:
+                resolved_tracker.tool_error_count += 1
+            if result.error_type == "timeout":
+                resolved_tracker.tool_timeout_count += 1
             set_span_attributes(
                 span,
                 {
@@ -791,6 +887,7 @@ class AgentRuntime:
                 tool=tool_call.name,
                 status="error" if result.is_error else "success",
                 duration_seconds=time.perf_counter() - started_at,
+                timeout=result.error_type == "timeout",
             )
             return result
 

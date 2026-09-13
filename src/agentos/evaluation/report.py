@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from agentos.evaluation.metrics import EvaluationSummary
-from agentos.evaluation.models import EvaluationResult, EvaluationRun
+from agentos.evaluation.models import EvaluationResult, EvaluationRun, EvaluationStatus
+from agentos.runtime.repositories import ReliabilityMetrics
 
 
 class EvaluationReport:
@@ -71,6 +72,30 @@ class EvaluationReportBuilder:
         tool_accuracy = (
             round(sum(tool_scores) / len(tool_scores), 4) if tool_scores else 0.0
         )
+        priced = [
+            result.estimated_cost
+            for result in results
+            if result.estimated_cost is not None
+        ]
+        estimated_cost = round(sum(priced), 8) if priced else None
+        tool_calls = sum(len(result.actual_tools) for result in results)
+        tool_errors = sum(result.tool_error_count for result in results)
+        tool_timeouts = sum(result.tool_timeout_count for result in results)
+        llm_calls = sum(result.llm_call_count for result in results)
+        llm_errors = sum(result.llm_error_count for result in results)
+        max_iteration_runs = sum(
+            1 for result in results if result.max_iterations_reached
+        )
+        cancelled = sum(
+            1 for result in results if result.status == EvaluationStatus.CANCELLED
+        )
+        reliability = ReliabilityMetrics(
+            timeout_rate=tool_timeouts / tool_calls if tool_calls else 0.0,
+            tool_error_rate=tool_errors / tool_calls if tool_calls else 0.0,
+            llm_error_rate=llm_errors / llm_calls if llm_calls else 0.0,
+            max_iteration_rate=max_iteration_runs / total if total else 0.0,
+            cancelled_rate=cancelled / total if total else 0.0,
+        )
         report = {
             "total": total,
             "passed": passed,
@@ -80,6 +105,9 @@ class EvaluationReportBuilder:
             "average_latency": average_latency,
             "average_tokens": average_tokens,
             "tool_accuracy": tool_accuracy,
+            "estimated_cost": estimated_cost,
+            "priced_cases": len(priced),
+            "reliability": reliability.model_dump(),
             "by_agent": EvaluationReportBuilder._by_agent(results),
             "by_tag": EvaluationReportBuilder._by_tag(run),
             "by_evaluator": EvaluationReportBuilder._by_evaluator(results),

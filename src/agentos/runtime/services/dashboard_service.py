@@ -59,6 +59,28 @@ class DashboardService:
             ),
         }
 
+    def reliability(
+        self, *, workspace_id: int = DEFAULT_WORKSPACE_ID
+    ) -> dict[str, Any]:
+        """Return counters and rates shared with Evaluation reporting."""
+        repository = self.run_repository
+        aggregate = (
+            repository.aggregate(workspace_id=workspace_id)
+            if repository is not None
+            else RunAggregate()
+        )
+        return {
+            "total_runs": aggregate.runs,
+            "tool_calls": aggregate.total_tool_calls,
+            "tool_errors": aggregate.tool_errors,
+            "tool_timeouts": aggregate.tool_timeouts,
+            "llm_calls": aggregate.llm_calls,
+            "llm_errors": aggregate.llm_errors,
+            "max_iteration_runs": aggregate.max_iteration_runs,
+            "cancelled_runs": aggregate.cancelled,
+            **aggregate.reliability.model_dump(),
+        }
+
     def tools(
         self,
         *,

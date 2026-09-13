@@ -166,6 +166,14 @@ class RunSummary(BaseModel):
     iterations: int = 0
     duration_ms: float = 0.0
     tool_call_count: int = 0
+    tool_error_count: int = 0
+    tool_timeout_count: int = 0
+    llm_call_count: int = 0
+    llm_error_count: int = 0
+    memory_recall_count: int = 0
+    memory_context_chars: int = 0
+    estimated_cost: float | None = None
+    max_iterations_reached: bool = False
     finish_reason: str | None = None
     total_tokens: int = 0
     token_usage: TokenUsage | None = None
@@ -186,6 +194,14 @@ class RunSummary(BaseModel):
             iterations=record.iterations,
             duration_ms=record.duration_ms,
             tool_call_count=record.tool_call_count,
+            tool_error_count=record.tool_error_count,
+            tool_timeout_count=record.tool_timeout_count,
+            llm_call_count=record.llm_call_count,
+            llm_error_count=record.llm_error_count,
+            memory_recall_count=record.memory_recall_count,
+            memory_context_chars=record.memory_context_chars,
+            estimated_cost=record.estimated_cost,
+            max_iterations_reached=record.max_iterations_reached,
             finish_reason=record.finish_reason,
             total_tokens=record.total_tokens,
             token_usage=TokenUsage(
@@ -340,6 +356,14 @@ class RunResponse(BaseModel):
     finish_reason: str | None = None
     usage: TokenUsage | None = None
     tool_call_count: int = 0
+    tool_error_count: int = 0
+    tool_timeout_count: int = 0
+    llm_call_count: int = 0
+    llm_error_count: int = 0
+    memory_recall_count: int = 0
+    memory_context_chars: int = 0
+    estimated_cost: float | None = None
+    max_iterations_reached: bool = False
     session_id: str | None = None
     plan: ExecutionPlan | None = None
 
@@ -355,6 +379,14 @@ class RunResponse(BaseModel):
             finish_reason=result.finish_reason,
             usage=result.usage,
             tool_call_count=result.tool_call_count,
+            tool_error_count=result.tool_error_count,
+            tool_timeout_count=result.tool_timeout_count,
+            llm_call_count=result.llm_call_count,
+            llm_error_count=result.llm_error_count,
+            memory_recall_count=result.memory_recall_count,
+            memory_context_chars=result.memory_context_chars,
+            estimated_cost=result.estimated_cost,
+            max_iterations_reached=result.max_iterations_reached,
             session_id=result.session_id,
             plan=result.plan,
         )
@@ -418,6 +450,24 @@ class DashboardOverviewResponse(BaseModel):
     average_latency: float = 0.0
     total_tokens: int = 0
     active_agents: int = 0
+
+
+class DashboardReliabilityResponse(BaseModel):
+    """Reliability counters and rates for one Workspace."""
+
+    total_runs: int = 0
+    tool_calls: int = 0
+    tool_errors: int = 0
+    tool_timeouts: int = 0
+    llm_calls: int = 0
+    llm_errors: int = 0
+    max_iteration_runs: int = 0
+    cancelled_runs: int = 0
+    timeout_rate: float = 0.0
+    tool_error_rate: float = 0.0
+    llm_error_rate: float = 0.0
+    max_iteration_rate: float = 0.0
+    cancelled_rate: float = 0.0
 
 
 class DashboardErrorItem(BaseModel):

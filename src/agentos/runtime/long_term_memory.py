@@ -26,7 +26,10 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from math import ceil
 from pathlib import Path
+
+from pydantic import BaseModel
 
 from agentos.core.config import MemorySettings
 from agentos.core.context import get_user_id, get_workspace_id
@@ -44,13 +47,36 @@ MAX_CONTENT_CHARS = 4000
 __all__ = [
     "MAX_CONTENT_CHARS",
     "LongTermMemory",
+    "MemoryContext",
     "MemoryRecord",
     "MemoryScope",
+    "estimate_tokens",
     "extract_terms",
 ]
 
 _ASCII_WORD_PATTERN = re.compile(r"[A-Za-z0-9_]{2,}")
 _CJK_RUN_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
+
+
+def estimate_tokens(text: str) -> int:
+    """Estimate tokens without adding a tokenizer dependency.
+
+    CJK characters are counted as one token each; ASCII runs are approximated at
+    four characters per token. This intentionally errs conservative enough for a
+    prompt budget guard, but it is not a provider tokenizer replacement.
+    """
+    ascii_chars = sum(1 for char in text if char.isascii())
+    non_ascii_chars = len(text) - ascii_chars
+    return ceil(ascii_chars / 4) + non_ascii_chars
+
+
+class MemoryContext(BaseModel):
+    """Bounded long-term-memory context injected into a run."""
+
+    text: str | None = None
+    recall_count: int = 0
+    char_count: int = 0
+    token_count: int = 0
 
 
 def extract_terms(query: str) -> list[str]:
@@ -146,6 +172,72 @@ class LongTermMemory:
             workspace_id=resolved_workspace,
             user_id=resolved_user,
             scope=MemoryScope(scope) if scope is not None else None,
+        )
+
+    def build_context(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+        max_chars: int | None = None,
+        max_tokens: int | None = None,
+        scope: MemoryScope | str | None = None,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> MemoryContext:
+        """Recall and fit memories into explicit character and token budgets."""
+        char_budget = max_chars or self._settings.long_term_max_context_chars
+        token_budget = max_tokens or self._settings.long_term_max_context_tokens
+        records = self.recall(
+            query,
+            limit=limit or self._settings.long_term_recall_limit,
+            scope=scope,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        prefix = "[长期记忆] 以下是与当前问题相关的历史记录，供参考："
+        if not records or char_budget < len(prefix) or token_budget < estimate_tokens(prefix):
+            return MemoryContext()
+
+        lines: list[str] = []
+
+        def fits(candidate_lines: list[str]) -> bool:
+            candidate = prefix + "\n" + "\n".join(candidate_lines)
+            return (
+                len(candidate) <= char_budget
+                and estimate_tokens(candidate) <= token_budget
+            )
+
+        for record in records:
+            content = record.content
+            if fits([*lines, f"- {content}"]):
+                lines.append(f"- {content}")
+                continue
+
+            low, high = 0, len(content)
+            while low < high:
+                middle = (low + high + 1) // 2
+                shortened = content[:middle]
+                if middle < len(content):
+                    shortened += "…"
+                if fits([*lines, f"- {shortened}"]):
+                    low = middle
+                else:
+                    high = middle - 1
+            if low:
+                shortened = content[:low]
+                if low < len(content):
+                    shortened += "…"
+                lines.append(f"- {shortened}")
+
+        if not lines:
+            return MemoryContext()
+        text = prefix + "\n" + "\n".join(lines)
+        return MemoryContext(
+            text=text,
+            recall_count=len(lines),
+            char_count=len(text),
+            token_count=estimate_tokens(text),
         )
 
     def list(

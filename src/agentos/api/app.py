@@ -126,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             memory=memory,
             long_term=long_term,
+            pricing=resolved.llm.pricing,
             runs=run_store,
             audit=audit_log,
             tool_policy=tool_policy,

@@ -85,6 +85,14 @@ class RunStore:
             prompt_tokens=usage.prompt_tokens if usage else 0,
             completion_tokens=usage.completion_tokens if usage else 0,
             total_tokens=usage.total_tokens if usage else 0,
+            tool_error_count=result.tool_error_count,
+            tool_timeout_count=result.tool_timeout_count,
+            llm_call_count=result.llm_call_count,
+            llm_error_count=result.llm_error_count,
+            memory_recall_count=result.memory_recall_count,
+            memory_context_chars=result.memory_context_chars,
+            estimated_cost=result.estimated_cost,
+            max_iterations_reached=result.max_iterations_reached,
             messages=list(result.messages),
         )
         self._repo.add(record)
@@ -104,6 +112,14 @@ class RunStore:
         duration_ms: float = 0.0,
         workspace_id: int | None = None,
         user_id: int | None = None,
+        tool_error_count: int = 0,
+        tool_timeout_count: int = 0,
+        llm_call_count: int = 0,
+        llm_error_count: int = 0,
+        memory_recall_count: int = 0,
+        memory_context_chars: int = 0,
+        estimated_cost: float | None = None,
+        max_iterations_reached: bool = False,
     ) -> RunRecord:
         """记录一次失败的运行 —— 失败同样值得留痕，便于排查。"""
         scope = self._scope(workspace_id)
@@ -117,6 +133,14 @@ class RunStore:
             input=input_text[:MAX_INPUT_CHARS],
             error=error,
             duration_ms=duration_ms,
+            tool_error_count=tool_error_count,
+            tool_timeout_count=tool_timeout_count,
+            llm_call_count=llm_call_count,
+            llm_error_count=llm_error_count,
+            memory_recall_count=memory_recall_count,
+            memory_context_chars=memory_context_chars,
+            estimated_cost=estimated_cost,
+            max_iterations_reached=max_iterations_reached,
         )
         self._repo.add(record)
         self._repo.prune(self._settings.max_records, workspace_id=scope)
@@ -132,6 +156,13 @@ class RunStore:
         duration_ms: float = 0.0,
         workspace_id: int | None = None,
         user_id: int | None = None,
+        tool_error_count: int = 0,
+        tool_timeout_count: int = 0,
+        llm_call_count: int = 0,
+        llm_error_count: int = 0,
+        memory_recall_count: int = 0,
+        memory_context_chars: int = 0,
+        estimated_cost: float | None = None,
     ) -> RunRecord:
         """Record a run cancelled because the client disconnected."""
         scope = self._scope(workspace_id)
@@ -145,6 +176,13 @@ class RunStore:
             input=input_text[:MAX_INPUT_CHARS],
             error="cancelled",
             duration_ms=duration_ms,
+            tool_error_count=tool_error_count,
+            tool_timeout_count=tool_timeout_count,
+            llm_call_count=llm_call_count,
+            llm_error_count=llm_error_count,
+            memory_recall_count=memory_recall_count,
+            memory_context_chars=memory_context_chars,
+            estimated_cost=estimated_cost,
         )
         self._repo.add(record)
         self._repo.prune(self._settings.max_records, workspace_id=scope)

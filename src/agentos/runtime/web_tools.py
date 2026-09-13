@@ -26,16 +26,36 @@ import ipaddress
 import re
 import socket
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse
 
 import httpx
 
+from agentos.core.cache import TTLCache
 from agentos.core.config import ToolsSettings
 from agentos.runtime.tools import Tool, truncate_text
 
 USER_AGENT = "AgentOS/0.1 (+https://github.com/Tanglies/AgentOS)"
 MAX_REDIRECTS = 3
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
+_CACHEABLE_CONTENT_TYPES = (
+    "text/html",
+    "text/plain",
+    "application/xhtml+xml",
+)
+_SENSITIVE_QUERY_KEYS = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "apikey",
+        "auth",
+        "authorization",
+        "key",
+        "password",
+        "signature",
+        "token",
+    }
+)
+
 
 
 class _HtmlTextExtractor(HTMLParser):
@@ -123,6 +143,27 @@ async def _is_public_host(host: str) -> bool:
     return True
 
 
+def _url_is_cacheable(url: str) -> bool:
+    """Reject URLs that commonly carry credentials or capability tokens."""
+    parsed = urlparse(url)
+    if parsed.username or parsed.password:
+        return False
+    query_keys = {key.lower() for key, _ in parse_qsl(parsed.query, keep_blank_values=True)}
+    return not query_keys.intersection(_SENSITIVE_QUERY_KEYS)
+
+
+def _response_is_cacheable(url: str, response: httpx.Response, content_type: str) -> bool:
+    """Cache only stable public text responses, never private/no-store responses."""
+    if not _url_is_cacheable(url):
+        return False
+    if "set-cookie" in response.headers:
+        return False
+    cache_control = response.headers.get("cache-control", "").lower()
+    if "no-store" in cache_control or "private" in cache_control:
+        return False
+    return content_type.lower().split(";", 1)[0].strip() in _CACHEABLE_CONTENT_TYPES
+
+
 async def _validate_url(url: str) -> None:
     """校验协议与目标地址，不通过时抛 :class:`ValueError`。"""
     parsed = urlparse(url)
@@ -159,13 +200,23 @@ class FetchUrlTool(Tool):
     }
 
     def __init__(
-        self, settings: ToolsSettings, *, transport: httpx.AsyncBaseTransport | None = None
+        self,
+        settings: ToolsSettings,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        cache: TTLCache[str, str] | None = None,
     ) -> None:
         self._settings = settings
         self._transport = transport
+        self._cache = cache
+        if self._cache is None and settings.web_cache_enabled:
+            self._cache = TTLCache(
+                ttl_seconds=settings.web_cache_ttl_seconds,
+                max_entries=settings.web_cache_max_entries,
+            )
 
-    async def _download(self, url: str) -> tuple[str, str, bytes, bool]:
-        """下载内容，返回 (最终 URL, content-type, 字节, 是否截断)。"""
+    async def _download(self, url: str) -> tuple[str, str, bytes, bool, bool]:
+        """下载内容，返回 (最终 URL, content-type, 字节, 是否截断, 是否可缓存)。"""
         limit = self._settings.max_web_bytes
         current = url
         headers = {"user-agent": USER_AGENT}
@@ -195,13 +246,18 @@ class FetchUrlTool(Tool):
                         if total >= limit:
                             break
                     content_type = response.headers.get("content-type", "")
-                    return current, content_type, b"".join(chunks), total >= limit
+                    cacheable = _response_is_cacheable(current, response, content_type)
+                    return current, content_type, b"".join(chunks), total >= limit, cacheable
 
         raise ValueError(f"重定向次数超过 {MAX_REDIRECTS} 次")
 
     async def run(self, url: str) -> str:
+        if self._cache is not None and _url_is_cacheable(url):
+            cached = self._cache.get(url)
+            if cached is not None:
+                return cached
         try:
-            final_url, content_type, raw, truncated = await self._download(url)
+            final_url, content_type, raw, truncated, cacheable = await self._download(url)
         except ValueError as exc:
             return f"抓取失败：{exc}"
         except httpx.TimeoutException:
@@ -217,7 +273,10 @@ class FetchUrlTool(Tool):
         if truncated:
             header += f"（内容超过 {self._settings.max_web_bytes} 字节，已截断）"
         body = text.strip() or "(页面没有可提取的文本内容)"
-        return truncate_text(f"{header}\n\n{body}", self._settings.max_output_chars)
+        output = truncate_text(f"{header}\n\n{body}", self._settings.max_output_chars)
+        if self._cache is not None and cacheable and _url_is_cacheable(url):
+            self._cache.set(url, output)
+        return output
 
 
 class WebSearchTool(Tool):
