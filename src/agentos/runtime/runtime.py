@@ -41,6 +41,7 @@ from agentos.llm.base import (
     ToolCall,
 )
 from agentos.observability.instrumentation import runtime_attributes, tool_attributes
+from agentos.observability.metrics import record_llm, record_run, record_tool
 from agentos.observability.tracing import set_span_attributes, start_span
 from agentos.runtime.agent import Agent
 from agentos.runtime.agent_tools import DEFAULT_MAX_DEPTH, DelegateToAgentTool
@@ -234,28 +235,44 @@ class AgentRuntime:
     ) -> AsyncIterator[RunEvent]:
         """Wrap the runtime loop in an ``agent.run`` OpenTelemetry Span."""
         agent_name = agent.name if isinstance(agent, Agent) else agent
+        started_at = time.perf_counter()
         with start_span(
             "agent.run", attributes=runtime_attributes(agent_name)
         ) as span:
-            async for event in self._run_stream_inner(
-                agent,
-                input_text,
-                history=history,
-                session_id=session_id,
-                stateless=stateless,
-                max_iterations=max_iterations,
-                max_tool_calls=max_tool_calls,
-            ):
-                if event.type == "end" and event.result is not None:
-                    set_span_attributes(
-                        span,
-                        {
-                            "iterations": event.result.iterations,
-                            "tool_call_count": event.result.tool_call_count,
-                            "duration_ms": event.result.duration_ms,
-                        },
-                    )
-                yield event
+            try:
+                async for event in self._run_stream_inner(
+                    agent,
+                    input_text,
+                    history=history,
+                    session_id=session_id,
+                    stateless=stateless,
+                    max_iterations=max_iterations,
+                    max_tool_calls=max_tool_calls,
+                ):
+                    if event.type == "end" and event.result is not None:
+                        set_span_attributes(
+                            span,
+                            {
+                                "iterations": event.result.iterations,
+                                "tool_call_count": event.result.tool_call_count,
+                                "duration_ms": event.result.duration_ms,
+                            },
+                        )
+                    yield event
+            except Exception as exc:
+                record_run(
+                    agent=agent_name,
+                    status="failed",
+                    duration_seconds=time.perf_counter() - started_at,
+                    error_type=type(exc).__name__,
+                )
+                raise
+            else:
+                record_run(
+                    agent=agent_name,
+                    status="completed",
+                    duration_seconds=time.perf_counter() - started_at,
+                )
 
 
     async def _run_stream_inner(
@@ -587,20 +604,43 @@ class AgentRuntime:
         options: CompletionOptions | None,
     ) -> AsyncIterator[StreamChunk]:
         """Stream from the model inside an ``llm.call`` Span."""
+        model = (
+            options.model
+            if options and options.model
+            else getattr(self._llm, "model", self._llm.provider)
+        )
+        started_at = time.perf_counter()
+        prompt_tokens = 0
+        completion_tokens = 0
         with start_span(
             "llm.call",
             attributes={
-                "model": (
-                    options.model
-                    if options and options.model
-                    else getattr(self._llm, "model", self._llm.provider)
-                ),
+                "model": model,
                 "workspace.id": get_workspace_id(),
                 "user.id": get_user_id(),
             },
         ):
-            async for chunk in self._llm.stream(messages, options=options):
-                yield chunk
+            try:
+                async for chunk in self._llm.stream(messages, options=options):
+                    if chunk.usage is not None:
+                        prompt_tokens += chunk.usage.prompt_tokens
+                        completion_tokens += chunk.usage.completion_tokens
+                    yield chunk
+            except Exception:
+                record_llm(
+                    model=str(model),
+                    status="error",
+                    duration_seconds=time.perf_counter() - started_at,
+                )
+                raise
+            else:
+                record_llm(
+                    model=str(model),
+                    status="success",
+                    duration_seconds=time.perf_counter() - started_at,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
 
     def _build_options(self, agent: Agent) -> CompletionOptions:
         """把 Agent 的模型参数与租户可见工具合并成单次调用选项。"""
@@ -630,6 +670,7 @@ class AgentRuntime:
         self, tool_call: ToolCall, agent: Agent
     ) -> ToolCallResult:
         """Execute one Tool call with policy and tracing checks."""
+        started_at = time.perf_counter()
         with start_span(
             "tool.call",
             attributes=tool_attributes(tool_call.name, call_id=tool_call.id),
@@ -660,6 +701,11 @@ class AgentRuntime:
                             target=tool_call.name,
                             detail="tool not visible in current workspace/agent policy",
                         )
+                    record_tool(
+                        tool=tool_call.name,
+                        status="denied",
+                        duration_seconds=time.perf_counter() - started_at,
+                    )
                     return result
 
             result = await self._tools.execute(tool_call)
@@ -680,6 +726,11 @@ class AgentRuntime:
                     target=result.name,
                     detail=f"result_length={len(result.content)}",
                 )
+            record_tool(
+                tool=tool_call.name,
+                status="error" if result.is_error else "success",
+                duration_seconds=time.perf_counter() - started_at,
+            )
             return result
 
     def _should_continue(self, response: LLMResponse, messages: Sequence[Message]) -> bool:
