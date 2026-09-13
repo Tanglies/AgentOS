@@ -34,10 +34,14 @@ from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.llm.base import (
     CompletionOptions,
     LLMClient,
+    LLMMessage,
     LLMResponse,
+    StreamChunk,
     TokenUsage,
     ToolCall,
 )
+from agentos.observability.instrumentation import runtime_attributes, tool_attributes
+from agentos.observability.tracing import set_span_attributes, start_span
 from agentos.runtime.agent import Agent
 from agentos.runtime.agent_tools import DEFAULT_MAX_DEPTH, DelegateToAgentTool
 from agentos.runtime.audit import (
@@ -228,6 +232,43 @@ class AgentRuntime:
         max_iterations: int | None = None,
         max_tool_calls: int | None = None,
     ) -> AsyncIterator[RunEvent]:
+        """Wrap the runtime loop in an ``agent.run`` OpenTelemetry Span."""
+        agent_name = agent.name if isinstance(agent, Agent) else agent
+        with start_span(
+            "agent.run", attributes=runtime_attributes(agent_name)
+        ) as span:
+            async for event in self._run_stream_inner(
+                agent,
+                input_text,
+                history=history,
+                session_id=session_id,
+                stateless=stateless,
+                max_iterations=max_iterations,
+                max_tool_calls=max_tool_calls,
+            ):
+                if event.type == "end" and event.result is not None:
+                    set_span_attributes(
+                        span,
+                        {
+                            "iterations": event.result.iterations,
+                            "tool_call_count": event.result.tool_call_count,
+                            "duration_ms": event.result.duration_ms,
+                        },
+                    )
+                yield event
+
+
+    async def _run_stream_inner(
+        self,
+        agent: Agent | str,
+        input_text: str,
+        *,
+        history: Sequence[Message] | None = None,
+        session_id: str | None = None,
+        stateless: bool = False,
+        max_iterations: int | None = None,
+        max_tool_calls: int | None = None,
+    ) -> AsyncIterator[RunEvent]:
         """流式执行一次 Agent 运行，逐段产出 :class:`RunEvent`。
 
         典型事件顺序：
@@ -308,7 +349,7 @@ class AgentRuntime:
                 finish_reason: str | None = None
                 chunk_usage: TokenUsage | None = None
 
-                async for chunk in self._llm.stream(
+                async for chunk in self._stream_llm(
                     [message.to_llm_message() for message in messages], options=options
                 ):
                     if chunk.delta:
@@ -539,6 +580,28 @@ class AgentRuntime:
         )
         return record.id if record is not None else None
 
+    async def _stream_llm(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        options: CompletionOptions | None,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream from the model inside an ``llm.call`` Span."""
+        with start_span(
+            "llm.call",
+            attributes={
+                "model": (
+                    options.model
+                    if options and options.model
+                    else getattr(self._llm, "model", self._llm.provider)
+                ),
+                "workspace.id": get_workspace_id(),
+                "user.id": get_user_id(),
+            },
+        ):
+            async for chunk in self._llm.stream(messages, options=options):
+                yield chunk
+
     def _build_options(self, agent: Agent) -> CompletionOptions:
         """把 Agent 的模型参数与租户可见工具合并成单次调用选项。"""
         options = agent.completion_options()
@@ -557,13 +620,20 @@ class AgentRuntime:
     async def _run_tool_calls(
         self, tool_calls: Sequence[ToolCall], agent: Agent
     ) -> list[ToolCallResult]:
-        """按声明顺序执行工具调用。
-
-        顺序执行而非并发，保证同一轮内多个工具调用的副作用可预期；
-        单个工具失败会返回 ``is_error=True`` 的结果，不会中断整次运行。
-        """
+        """Execute Tool calls sequentially and emit one Span per call."""
         results: list[ToolCallResult] = []
         for tool_call in tool_calls:
+            results.append(await self._execute_tool_call(tool_call, agent))
+        return results
+
+    async def _execute_tool_call(
+        self, tool_call: ToolCall, agent: Agent
+    ) -> ToolCallResult:
+        """Execute one Tool call with policy and tracing checks."""
+        with start_span(
+            "tool.call",
+            attributes=tool_attributes(tool_call.name, call_id=tool_call.id),
+        ) as span:
             if self._tool_policy is not None:
                 allowed = self._tool_policy.visible_tool_names(
                     self._tools,
@@ -580,6 +650,9 @@ class AgentRuntime:
                         ),
                         is_error=True,
                     )
+                    set_span_attributes(
+                        span, {"status": "denied", "error": True}
+                    )
                     if self._audit is not None:
                         self._audit.record(
                             ACTION_TOOL_EXECUTE,
@@ -587,9 +660,17 @@ class AgentRuntime:
                             target=tool_call.name,
                             detail="tool not visible in current workspace/agent policy",
                         )
-                    results.append(result)
-                    continue
+                    return result
+
             result = await self._tools.execute(tool_call)
+            set_span_attributes(
+                span,
+                {
+                    "status": "error" if result.is_error else "success",
+                    "error": result.is_error,
+                    "result_length": len(result.content),
+                },
+            )
             if self._audit is not None:
                 self._audit.record(
                     ACTION_TOOL_EXECUTE,
@@ -597,10 +678,9 @@ class AgentRuntime:
                         AuditStatus.FAILURE if result.is_error else AuditStatus.SUCCESS
                     ),
                     target=result.name,
-                    detail=result.content[:200],
+                    detail=f"result_length={len(result.content)}",
                 )
-            results.append(result)
-        return results
+            return result
 
     def _should_continue(self, response: LLMResponse, messages: Sequence[Message]) -> bool:
         """是否需要进入下一轮迭代。

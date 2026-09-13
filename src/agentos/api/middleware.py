@@ -16,6 +16,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from agentos.core.context import bind, new_id
 from agentos.core.logging import get_logger
+from agentos.observability.instrumentation import request_attributes
+from agentos.observability.tracing import set_span_attributes, start_span
 
 logger = get_logger(__name__)
 
@@ -50,11 +52,20 @@ class RequestContextMiddleware:
             await send(message)
 
         # 整段请求都在绑定内，访问日志才能带上这两个 id
-        with bind(request_id=request_id, trace_id=trace_id):
+        with bind(request_id=request_id, trace_id=trace_id), start_span(
+            "http.request", attributes=request_attributes(scope)
+        ) as span:
             try:
                 await self.app(scope, receive, send_wrapper)
             finally:
                 duration_ms = (time.perf_counter() - started_at) * 1000
+                set_span_attributes(
+                    span,
+                    {
+                        "http.status_code": status_code,
+                        "duration_ms": round(duration_ms, 3),
+                    },
+                )
                 logger.info(
                     "http request",
                     extra={

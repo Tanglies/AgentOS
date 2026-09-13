@@ -45,6 +45,7 @@ from agentos.core.logging import configure_logging, get_logger
 from agentos.evaluation.evaluators import LLMJudgeEvaluator
 from agentos.evaluation.runner import EvaluationRunner, default_evaluators
 from agentos.evaluation.store import EvaluationStore
+from agentos.observability.tracing import configure_tracing, force_flush
 from agentos.llm.factory import create_llm_client
 from agentos.runtime.api_keys import ApiKeyStore
 from agentos.runtime.audit import AuditLog
@@ -77,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        configure_tracing(resolved.observability)
         platform_store = PlatformStore(resolved.platform)
         user_service = UserService(platform_store.users)
         audit_log = AuditLog(resolved.audit) if resolved.audit.enabled else None
@@ -177,6 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await evaluation_service.close()
             await runtime.aclose()
+            force_flush()
             logger.info("application stopped")
 
     app = FastAPI(

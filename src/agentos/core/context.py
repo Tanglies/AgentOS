@@ -37,6 +37,8 @@ _TOOL_NAME: ContextVar[str | None] = ContextVar("agentos_tool_name", default=Non
 _ACTOR: ContextVar[str | None] = ContextVar("agentos_actor", default=None)
 _USER_ID: ContextVar[int | None] = ContextVar("agentos_user_id", default=None)
 _WORKSPACE_ID: ContextVar[int | None] = ContextVar("agentos_workspace_id", default=None)
+_OTEL_TRACE_ID: ContextVar[str | None] = ContextVar("agentos_otel_trace_id", default=None)
+_OTEL_SPAN_ID: ContextVar[str | None] = ContextVar("agentos_otel_span_id", default=None)
 
 _FIELDS: dict[str, ContextVar[Any | None]] = {
     "trace_id": _TRACE_ID,
@@ -47,6 +49,8 @@ _FIELDS: dict[str, ContextVar[Any | None]] = {
     "actor": _ACTOR,
     "user_id": _USER_ID,
     "workspace_id": _WORKSPACE_ID,
+    "otel_trace_id": _OTEL_TRACE_ID,
+    "otel_span_id": _OTEL_SPAN_ID,
 }
 
 
@@ -139,6 +143,32 @@ def reset_actor(token: Token[str | None]) -> None:
     _reset("actor", token)
 
 
+
+
+def get_otel_trace_id() -> str | None:
+    """Return the current OpenTelemetry trace id."""
+    return _OTEL_TRACE_ID.get()
+
+
+def set_otel_trace_id(value: str | None) -> Token[str | None]:
+    return _OTEL_TRACE_ID.set(value)
+
+
+def reset_otel_trace_id(token: Token[str | None]) -> None:
+    _OTEL_TRACE_ID.reset(token)
+
+
+def get_otel_span_id() -> str | None:
+    """Return the current OpenTelemetry span id."""
+    return _OTEL_SPAN_ID.get()
+
+
+def set_otel_span_id(value: str | None) -> Token[str | None]:
+    return _OTEL_SPAN_ID.set(value)
+
+
+def reset_otel_span_id(token: Token[str | None]) -> None:
+    _OTEL_SPAN_ID.reset(token)
 
 
 def get_user_id() -> int | None:

@@ -88,6 +88,19 @@ class PlatformSettings(BaseModel):
     db_path: str = ".agentos/platform.db"
 
 
+class ObservabilitySettings(BaseModel):
+    """OpenTelemetry and Prometheus configuration."""
+
+    enabled: bool = False
+    service_name: str = "agentos"
+    otlp_endpoint: str | None = None
+    export_traces: bool = False
+    export_metrics: bool = False
+    sample_ratio: float = Field(default=1.0, gt=0.0, le=1.0)
+    prometheus_enabled: bool = False
+    metrics_path: str = "/metrics"
+
+
 class EvaluationSettings(BaseModel):
     """Evaluation 2.0 configuration."""
 
@@ -238,6 +251,7 @@ class Settings(BaseSettings):
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
     platform: PlatformSettings = Field(default_factory=PlatformSettings)
     evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     quota: QuotaSettings = Field(default_factory=QuotaSettings)
     runs: RunStoreSettings = Field(default_factory=RunStoreSettings)
     audit: AuditSettings = Field(default_factory=AuditSettings)

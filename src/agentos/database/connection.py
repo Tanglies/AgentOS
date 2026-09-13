@@ -98,23 +98,44 @@ class Database:
 
     def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
         """Execute a write statement and return the affected row count."""
-        with self.connect() as conn:
-            cursor = conn.execute(sql, params)
-        return max(0, cursor.rowcount)
+        from agentos.observability.tracing import start_span
+
+        with start_span(
+            "repository.query",
+            attributes={"db.system": "sqlite", "db.operation": sql.split(maxsplit=1)[0]},
+        ):
+            with self.connect() as conn:
+                cursor = conn.execute(sql, params)
+            return max(0, cursor.rowcount)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[sqlite3.Row]:
         """Execute a query and return all rows."""
-        with self.connect() as conn:
+        from agentos.observability.tracing import start_span
+
+        with start_span(
+            "repository.query",
+            attributes={"db.system": "sqlite", "db.operation": sql.split(maxsplit=1)[0]},
+        ), self.connect() as conn:
             return list(conn.execute(sql, params).fetchall())
 
     def query_one(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Row | None:
         """Execute a query and return the first row, if any."""
-        with self.connect() as conn:
+        from agentos.observability.tracing import start_span
+
+        with start_span(
+            "repository.query",
+            attributes={"db.system": "sqlite", "db.operation": sql.split(maxsplit=1)[0]},
+        ), self.connect() as conn:
             return conn.execute(sql, params).fetchone()
 
     def execute_script(self, script: str) -> None:
         """Execute a multi-statement SQL script."""
-        with self.connect() as conn:
+        from agentos.observability.tracing import start_span
+
+        with start_span(
+            "repository.query",
+            attributes={"db.system": "sqlite", "db.operation": "script"},
+        ), self.connect() as conn:
             conn.executescript(script)
 
     def applied_migrations(self) -> list[int]:
