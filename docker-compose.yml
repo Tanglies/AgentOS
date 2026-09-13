@@ -1,0 +1,21 @@
+﻿services:
+  agentos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agentos:local
+    ports:
+      - "8000:8000"
+    environment:
+      AGENTOS_ENVIRONMENT: local
+      AGENTOS_API__HOST: 0.0.0.0
+      AGENTOS_API__PORT: 8000
+      AGENTOS_LLM__PROVIDER: echo
+      AGENTOS_TOOLS__ALLOW_SHELL: "false"
+      AGENTOS_OBSERVABILITY__PROMETHEUS_ENABLED: "true"
+    volumes:
+      - agentos-data:/app/.agentos
+    restart: unless-stopped
+
+volumes:
+  agentos-data:
