@@ -16,6 +16,7 @@ from agentos.evaluation.evaluators import (
     extract_actual_tools,
 )
 from agentos.evaluation.evaluators.base import Evaluator
+from agentos.evaluation.evaluators.llm_judge import LLMJudgeEvaluator
 from agentos.evaluation.models import (
     EvaluationCase,
     EvaluationDataset,
@@ -26,15 +27,18 @@ from agentos.evaluation.models import (
 from agentos.runtime.runtime import AgentRuntime
 
 
-def default_evaluators() -> list[Evaluator]:
-    """Return the default rule-based evaluator set."""
-    return [
+def default_evaluators(*, judge: LLMJudgeEvaluator | None = None) -> list[Evaluator]:
+    """Return the default evaluator set and optional LLM judge."""
+    evaluators: list[Evaluator] = [
         ExactMatchEvaluator(),
         ContainsEvaluator(),
         ToolCallEvaluator(),
         ForbiddenToolEvaluator(),
         RuleEvaluator(),
     ]
+    if judge is not None:
+        evaluators.append(judge)
+    return evaluators
 
 
 class EvaluationRunner:

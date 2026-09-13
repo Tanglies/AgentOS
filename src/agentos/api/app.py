@@ -42,7 +42,8 @@ from agentos.api.routes import (
 from agentos.core.config import Settings, get_settings
 from agentos.core.exceptions import AgentOSError
 from agentos.core.logging import configure_logging, get_logger
-from agentos.evaluation.runner import EvaluationRunner
+from agentos.evaluation.evaluators import LLMJudgeEvaluator
+from agentos.evaluation.runner import EvaluationRunner, default_evaluators
 from agentos.evaluation.store import EvaluationStore
 from agentos.llm.factory import create_llm_client
 from agentos.runtime.api_keys import ApiKeyStore
@@ -125,10 +126,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tool_policy=tool_policy,
         )
         run_service = RunService(runtime, quota_service)
+        judge = (
+            LLMJudgeEvaluator(
+                llm_client,
+                model=resolved.evaluation.judge_model,
+            )
+            if resolved.evaluation.judge_enabled
+            else None
+        )
         evaluation_service = EvaluationService(
             EvaluationStore(resolved.evaluation),
             EvaluationRunner(
                 runtime,
+                evaluators=default_evaluators(judge=judge),
                 max_concurrency=resolved.evaluation.max_concurrency,
             ),
             resolved.evaluation,

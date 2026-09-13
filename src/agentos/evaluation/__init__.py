@@ -5,6 +5,7 @@ from agentos.evaluation.evaluators import (
     ContainsEvaluator,
     ExactMatchEvaluator,
     ForbiddenToolEvaluator,
+    LLMJudgeEvaluator,
     RuleEvaluator,
     ToolCallEvaluator,
 )
@@ -27,6 +28,7 @@ from agentos.evaluation.models import (
     EvaluationScore,
     EvaluationStatus,
 )
+from agentos.evaluation.regression import EvaluationRegression
 from agentos.evaluation.report import EvaluationReport
 
 __all__ = [
@@ -34,10 +36,12 @@ __all__ = [
     "ContainsEvaluator",
     "ExactMatchEvaluator",
     "ForbiddenToolEvaluator",
+    "LLMJudgeEvaluator",
     "RuleEvaluator",
     "ToolCallEvaluator",
     "EvaluationCollector",
     "EvaluationDataset",
+    "EvaluationRegression",
     "EvaluationReport",
     "EvaluationResult",
     "EvaluationRun",
