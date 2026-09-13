@@ -127,7 +127,8 @@ def test_authenticate_rejects_empty_and_wrong_keys(tmp_path: Path) -> None:
     assert store.authenticate("sk-agentos-wrong") is None
 
 
-def test_authenticate_updates_last_used_at(tmp_path: Path) -> None:
+def test_authenticate_updates_last_used_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('agentos.runtime.api_keys.time.monotonic', lambda: 1.0)
     store = _store(tmp_path)
     result = store.issue("worker")
 

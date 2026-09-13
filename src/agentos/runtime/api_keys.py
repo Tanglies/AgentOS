@@ -250,7 +250,8 @@ class ApiKeyStore:
     def _touch(self, digest: str) -> None:
         """刷新最近使用时间；同一密钥 60 秒内只写一次，避免每请求一次写。"""
         now = time.monotonic()
-        if now - self._last_touch.get(digest, 0.0) < TOUCH_INTERVAL_SECONDS:
+        last_touch = self._last_touch.get(digest)
+        if last_touch is not None and now - last_touch < TOUCH_INTERVAL_SECONDS:
             return
         self._last_touch[digest] = now
         self._repo.touch(digest, used_at=datetime.now(UTC))
