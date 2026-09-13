@@ -30,8 +30,11 @@ export async function apiRequest<T>(
     },
   })
   if (!response.ok) {
-    let details: unknown
-    try { details = await response.json() } catch { details = await response.text() }
+    const body = await response.text()
+    let details: unknown = body
+    if (body) {
+      try { details = JSON.parse(body) } catch { details = body }
+    }
     throw new ApiError(`Request failed: ${response.status}`, response.status, details)
   }
   if (response.status === 204) return undefined as T

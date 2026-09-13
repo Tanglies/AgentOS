@@ -16,6 +16,14 @@ describe('dashboard api', () => {
     expect(overview.active_agents).toBe(6)
   })
 
+  it('reads a non-json error body exactly once', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'false')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('Unauthorized', { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { apiRequest } = await import('./client')
+    await expect(apiRequest('/private')).rejects.toMatchObject({ status: 401, details: 'Unauthorized' })
+  })
+
   it('sends auth header through the shared api client', async () => {
     vi.stubEnv('VITE_DEMO_MODE', 'false')
     window.localStorage.setItem('agentos-api-key', 'sk-test')
