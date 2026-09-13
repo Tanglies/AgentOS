@@ -34,23 +34,20 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 - [x] Dashboard 只读接口（`overview` / `tools` / `errors`，数据复用 runs / audit / registry）
 - [x] Tool 管理（注册、分类、权限绑定）
   - [x] `Tool.required_permissions`：默认要求 `tool:execute`，Runtime 执行点强制校验
-- [~] 权限系统（身份认证、配额、工具访问控制）
-  - [x] API Key 认证：静态引导密钥 + SQLite 数据库密钥，失败关闭 + 常量时间比较
-  - [x] 权限模型：`资源:动作` 权限、路由级 `require(...)`、工具执行二次校验
-  - [x] API Key 管理：签发、列表、软吊销；明文仅返回一次，数据库只存 SHA-256
-  - [ ] **账号体系（下一阶段重点，当前 API Key 只是过渡方案）**
-    - [ ] 用户注册 / 登录：账号 + 密码（哈希存储，bcrypt 或 argon2）
-    - [ ] 用户隔离：会话、长期记忆、运行记录按用户分区，互相不可见
-    - [ ] **工作区隔离**：每个用户独立的 `workspace_root` 与 `.agentos/` 数据目录
-    - [ ] 令牌机制：登录后签发 token（JWT 或服务端 session），替代静态 API Key
-    - [ ] 数据归属：`session_id` / `memory_id` / `run_id` 绑定 owner，查询时强制过滤
-  - [ ] 配额与限流：按用户统计调用量与速率
-  - [ ] 更细的工具访问控制：按用户/角色限制可用工具
+- [x] 平台身份 / Workspace 模型：User、Workspace、Membership 与请求上下文
+- [x] 资源隔离：Agent / Run / Memory / API Key / Audit 按 Workspace 过滤
+- [x] 数据归属：`workspace_id` 已绑定核心资源，查询强制过滤
+- [x] 配额与限流：按 Workspace 统计调用量、tokens 与请求速率
+- [x] 工具访问控制：Workspace / Agent Tool Policy + Runtime 二次校验
+- [ ] **End-user login system（尚未完成）**
+  - [ ] username / password 注册与登录（密码哈希采用 bcrypt 或 argon2）
+  - [ ] JWT / server-side session 令牌，替代面向终端用户的静态 API Key
+  - [ ] 登录态、密码重置、会话撤销与安全审计
 - [~] API 完善（分页、过滤、批量操作）
   - [x] Agent 管理 API：分页、过滤条件、完整详情
   - [x] Run History：`page/page_size` 与旧 `limit/offset` 兼容
   - [ ] 批量操作与通用游标分页
-- [ ] 数据模型与迁移机制
+- [x] 数据模型与迁移机制
   - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）
   - [x] schema 版本表与增量迁移基础（`database/migrations/`，支持按版本幂等执行）
 
@@ -67,27 +64,46 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 - [x] 旧 SQLite 数据迁移到 default Workspace
 - [x] 多租户安全隔离回归测试
 
-## 阶段 4：工程能力
+## 阶段 4：Production Engineering ✅ Phase 4
 
-- [ ] Observability：指标与链路追踪
-  - [x] 上下文链路：`trace_id` / `request_id` / `run_id` / `agent_name` / `tool_name` / `actor`
-  - [x] Audit Log：`agent.run` / `tool.execute` / `agent.register` / `agent.unregister`，
-        `GET /api/v1/audit` 支持过滤与排序
-  - [x] `docs/observability.md`
-  - [ ] 指标导出：Prometheus / OpenTelemetry
-  - [ ] 审计防篡改与保留期策略
-- [ ] Evaluation：评测集与自动评分（基础指标包已拆分到 `evaluation/`）
-  - [x] 基础指标：延迟分位、token 用量、成功率、工具调用（`GET /api/v1/evaluation/summary`）
-  - [x] 顶层平均值：`average_latency` / `average_tokens` / `average_tool_calls`
-  - [ ] 评测集：构造用例集与期望输出
-  - [ ] 自动评分：规则评分 + 裁判模型评分
-- [ ] 性能优化：并发、缓存（流式响应已完成，见阶段 1）
-- [ ] Docker 部署：镜像与本地一键启动
-- [ ] CI 流水线（需确认后接入）
+### Evaluation 2.0
+
+- [x] JSONL Dataset 与 Code Case 契约
+- [x] 规则 Evaluator、工具轨迹评分与可选 LLM Judge（默认关闭）
+- [x] Evaluation Runner、后台任务与 Workspace 隔离
+- [x] 质量报告、工程指标、Cost / Reliability 聚合
+- [x] Baseline vs Candidate 回归比较
+- [x] 20 个真实 Benchmark Case
+- [ ] Embedding / 向量检索与语义 Evaluator（后移）
+
+### Observability
+
+- [x] OpenTelemetry `http.request` / `agent.run` / `llm.call` / `tool.call` / `repository.query`
+- [x] Prometheus 运行、LLM、Tool、Token、Timeout 指标
+- [x] 敏感 Prompt / API Key 属性过滤
+- [x] OTLP 导出配置与文档
+- [ ] 审计防篡改与保留期策略（后移）
+
+### Deployment / CI
+
+- [x] 多阶段 Dockerfile、非 root 用户、健康检查
+- [x] Docker Compose 与 `.agentos` volume
+- [x] GitHub Actions ruff / pytest / docker build
+- [ ] Kubernetes / 多副本部署（非目标）
+
+### Reliability / Performance
+
+- [x] SSE cancellation 传播到 LLM 与 Tool
+- [x] 统一 Tool timeout，错误回填而非崩溃
+- [x] parallel-safe Tool 并发，副作用 Tool 严格顺序
+- [x] 有界 TTL Web cache，错误与敏感响应不缓存
+- [x] Long-Term Memory character / token context budget
+- [x] 可选配置价格映射与 `estimated_cost`（无价格返回 null）
+- [x] timeout / tool / LLM / max-iteration / cancelled reliability rates
 
 ## 持续事项
 
 - [x] 补测试：核心路径覆盖
-- [x] 补文档：README 与 docs/ 三份文档
+- [x] 补文档：README 与 docs/ 全套架构、平台、评估、部署与可靠性文档
 - [ ] 依赖维护：及时跟进安全更新
 - [ ] 每个版本更新 CHANGELOG 与版本号

@@ -2,7 +2,7 @@
 
 一个企业级大模型 Agent 平台，目标能力：Tool Calling、Memory、Evaluation 与 Observability。
 
-当前版本：**v0.1.0（阶段 2 平台能力）** —— Runtime、Tool Calling、Memory、Evaluation、Observability 与平台安全能力已落地，质量评估和部署能力持续迭代。
+当前版本：**v0.1.0（Phase 4 Production Engineering）** —— Runtime、Tool Calling、Memory、Multi-Agent、多租户平台、Evaluation 2.0、OpenTelemetry / Prometheus、Docker 与 CI 已落地。
 
 ## 能力矩阵
 
@@ -14,8 +14,8 @@
 | Agent 持久化 | 默认 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
 | 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页、排序 | ✅ v0.1 |
 | 数据访问层 | `database` 包、迁移账本、Repository 基座 + Agent / Run / Memory / Audit / API Key 仓储 | ✅ v0.1 |
-| Evaluation | `evaluation` 包：延迟分位、token 用量、成功率、工具调用统计 | ✅ v0.1 |
-| 可观测性 | trace 贯穿全链路 + 审计日志（谁/何时/做了什么/结果） | ✅ v0.1 |
+| Evaluation | 工程指标 + JSONL Dataset、规则 Evaluator、轨迹校验、可选 LLM Judge、回归对比 | ✅ Phase 4A |
+| 可观测性 | trace 贯穿全链路、审计日志、OpenTelemetry Span、Prometheus `/metrics` | ✅ Phase 4B |
 | Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
 | LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
 | 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
@@ -28,8 +28,8 @@
 | Planning | 任务分解、步骤跟踪、进度注入系统提示词 | ✅ v0.1 |
 | Memory | 短期会话记忆（内存）+ 长期记忆（SQLite 持久化、关键词检索） | ✅ v0.1 |
 | Multi-Agent | 委托式协作（`delegate_to_agent`）、深度限制与子 Agent 隔离 | ✅ v0.1 |
-| 质量评估与导出 | 评测集、自动评分、Prometheus / OpenTelemetry、Docker | 规划中 |
-| Docker 部署 | 镜像与一键启动 | 规划中 |
+| Reliability | SSE 取消传播、统一 Tool timeout、并行安全 Tool、TTL cache、Memory budget、Cost 估算 | ✅ Phase 4D |
+| Docker / CI | 多阶段非 root 镜像、Compose、GitHub Actions ruff/pytest/docker build | ✅ Phase 4C |
 
 ## 架构
 
@@ -39,7 +39,10 @@ graph TD
     API --> Runtime[runtime 层<br/>Agent / Message / AgentRuntime]
     Runtime --> LLM[llm 层<br/>LLMClient 抽象 / echo / OpenAI 兼容]
     Runtime --> Database[database 层<br/>SQLite / Repository / Migration]
-    Evaluation[evaluation 层<br/>Metrics / Collector / Report] --> Runtime
+    Evaluation[evaluation 层<br/>Dataset / Evaluator / Runner / Report] --> Runtime
+    Observability[observability 层<br/>OTel / Prometheus / Cost] --> Runtime
+    API --> Evaluation
+    API --> Observability
     API --> Core[core 层<br/>配置 / 日志 / 上下文 / 异常]
     Runtime --> Core
     LLM --> Core
@@ -226,7 +229,7 @@ curl.exe http://127.0.0.1:8000/api/v1/runs -H "X-API-Key: sk-agentos-..."
 
 密钥数据库默认是 `.agentos/api_keys.db`，只保存 SHA-256 哈希；吊销后立即拒绝认证。
 开启但没有任何可用密钥时，服务会**拒绝所有请求**（fail closed）。当前 API Key
-是平台级权限，不是用户隔离方案；账号、密码与工作区隔离按 `TODO.md` 后续实施。
+是平台级权限，配合 Phase 3 的 User / Workspace 模型实现资源隔离；username/password + JWT/session 终端用户登录尚未实现，后续按 `TODO.md` 推进。
 
 ### 运行历史与评估
 
@@ -355,7 +358,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
   -d '{"input": "我叫什么名字", "session_id": "chat-1"}'
 ```
 
-会话记忆当前是**进程内实现**，重启即清空；持久化与长期记忆（向量检索）属于后续阶段。
+短期会话记忆是**进程内实现**，重启即清空；长期记忆已落盘到 SQLite 并支持关键词召回，向量/语义检索属于后续阶段。
 
 | 接口 | 说明 |
 | --- | --- |
@@ -421,7 +424,12 @@ Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模
 | GET | `/api/v1/dashboard/tools` | 工具调用统计 |
 | GET | `/api/v1/dashboard/errors` | 最近失败运行 |
 | GET | `/api/v1/dashboard/usage` | 当前 Workspace 配额使用量 |
-| GET | `/api/v1/evaluation/summary` | 评估指标汇总（延迟 / token / 成功率 / 工具调用） |
+| GET | `/api/v1/evaluation/summary` | 旧版工程指标汇总（延迟 / token / 成功率 / 工具调用） |
+| POST | `/api/v1/evaluations/run` | 启动 Dataset Evaluation（202 + 后台执行） |
+| GET | `/api/v1/evaluations` | 查询 Evaluation 运行列表 |
+| GET | `/api/v1/evaluations/{id}` | 查看逐 Case 评分与报告详情 |
+| GET | `/api/v1/dashboard/reliability` | timeout / tool / LLM / max-iteration / cancelled 指标 |
+| GET | `/metrics` | Prometheus 指标（需显式开启） |
 | GET | `/api/v1/audit` | 查询审计日志（支持过滤与排序） |
 | GET | `/api/v1/api-keys` | 列出 API Key 元数据（管理员） |
 | POST | `/api/v1/api-keys` | 签发 API Key，明文只返回一次（管理员） |
@@ -467,7 +475,11 @@ docs/             # 架构、平台、配置、数据库、评估、可观测性
 - [平台能力](docs/platform.md)
 - [可观测性](docs/observability.md)
 - [数据库与 Repository](docs/database.md)
-- [Evaluation](docs/evaluation.md)
+- [Evaluation 工程指标](docs/evaluation.md)
+- [Evaluation 2.0](docs/evaluation-framework.md)
+- [Telemetry](docs/telemetry.md)
+- [Deployment](docs/deployment.md)
+- [Reliability](docs/reliability.md)
 - [配置说明](docs/configuration.md)
 - [开发指南](docs/development.md)
 - [变更记录](CHANGELOG.md)

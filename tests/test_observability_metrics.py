@@ -43,6 +43,12 @@ def test_metric_names_and_low_cardinality_labels() -> None:
         completion_tokens=5,
     )
     record_tool(tool="calculate", status="success", duration_seconds=0.01)
+    record_tool(
+        tool="fetch_url",
+        status="error",
+        duration_seconds=0.02,
+        timeout=True,
+    )
 
     body = render_metrics().decode("utf-8")
 
@@ -50,6 +56,7 @@ def test_metric_names_and_low_cardinality_labels() -> None:
     assert "agentos_run_duration_seconds" in body
     assert "agentos_llm_tokens_total" in body
     assert "agentos_tool_calls_total" in body
+    assert "agentos_tool_timeouts_total" in body
     assert 'run_id=' not in body
     assert 'user_id=' not in body
 

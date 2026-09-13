@@ -7,6 +7,28 @@
 
 ### 新增
 
+- **Phase 4 — Production Engineering**
+  - Evaluation 2.0：JSONL Dataset、Case/Result/Run 契约、规则 Evaluator、
+    工具轨迹评分、可选 LLM Judge、并发 Runner、Report 与 Baseline/Candidate 回归
+  - 新增 Evaluation API：`POST /api/v1/evaluations/run`、列表与详情；后台任务按 Workspace 隔离
+  - 新增 20 个可运行 Benchmark：Tool Calling / Memory / Planning / Multi-Agent / Safety
+  - OpenTelemetry：`http.request` / `agent.run` / `llm.call` / `tool.call` /
+    `repository.query` Span，敏感属性过滤，OTLP HTTP 导出
+  - Prometheus：运行、LLM、Tool、token、timeout 指标；默认关闭，`/metrics` 按需启用
+  - Docker：多阶段 Python 3.11 image、非 root 用户、healthcheck、Compose 与 `.agentos` volume
+  - GitHub Actions：Python 3.11 上自动执行 ruff、pytest 与 docker build，无真实收费密钥
+  - Reliability：SSE cancellation 传播、统一 Tool timeout、parallel-safe Tool 并发、
+    有界 TTL Web cache、Memory context character/token budget
+  - Cost：可配置 model pricing map，按真实 TokenUsage 计算 `estimated_cost`；
+    没有价格时为 `null`，不硬编码厂商价格
+  - Dashboard 新增 `/api/v1/dashboard/reliability`；Evaluation Report 复用同一组
+    timeout / tool error / LLM error / max iteration / cancelled 指标
+  - 文档新增 `docs/evaluation-framework.md`、`docs/telemetry.md`、
+    `docs/deployment.md`、`docs/reliability.md`
+  - 测试增至 **619 passed**，`ruff check .` 全通过
+  - 备注：当前开发机未安装 Docker，Dockerfile/Compose 做结构测试，实际镜像构建由 CI 验证
+
+
 - **Multi-Tenant Agent Platform（Phase 3）**
   - 新增 users / workspaces / workspace_members 数据模型与 API
   - 请求上下文、日志、Audit 增加 `user_id` / `workspace_id`

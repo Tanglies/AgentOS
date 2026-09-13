@@ -8,7 +8,7 @@ Evaluation 模块把运行记录转换成可比较的工程指标，回答三个
 - 运行是否快：平均延迟、P50、P95、最大延迟；
 - 运行是否昂贵：prompt / completion / total token，以及工具调用次数。
 
-它**不做回答质量评分**。幻觉、准确率和人类偏好需要评测集与裁判模型，属于后续阶段。
+它**只做工程指标聚合**，不做回答质量评分。Phase 4 的 Dataset、规则 Evaluator、可选 Judge 与回归比较见 [Evaluation Framework](evaluation-framework.md)。
 
 ## 目录
 

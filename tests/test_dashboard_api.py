@@ -60,6 +60,35 @@ def test_overview_is_zeroed_with_empty_history(tmp_path: Path) -> None:
     }
 
 
+def test_reliability_endpoint_reuses_run_counters(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        empty = client.get("/api/v1/dashboard/reliability").json()
+        client.app.state.runtime.runs.record_failure(
+            run_id="run_bad",
+            agent="assistant",
+            input_text="bad input",
+            error="boom",
+            tool_error_count=1,
+            tool_timeout_count=1,
+            llm_call_count=2,
+            llm_error_count=1,
+            max_iterations_reached=True,
+        )
+        body = client.get("/api/v1/dashboard/reliability").json()
+
+    assert empty["total_runs"] == 0
+    assert empty["tool_error_rate"] == 0.0
+    assert body["total_runs"] == 1
+    assert body["tool_errors"] == 1
+    assert body["tool_timeouts"] == 1
+    assert body["llm_errors"] == 1
+    assert body["max_iteration_runs"] == 1
+    assert body["timeout_rate"] == 0.0
+    assert body["tool_error_rate"] == 0.0
+    assert body["llm_error_rate"] == 0.5
+    assert body["max_iteration_rate"] == 1.0
+
+
 def test_overview_reflects_recorded_runs(tmp_path: Path) -> None:
     with TestClient(_app(tmp_path)) as client:
         client.post("/api/v1/runs", json={"input": "a"})

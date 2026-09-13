@@ -9,7 +9,8 @@
 ├─────────────────────────────────────────────────────┤
 │ runtime   Agent / Message / AgentRuntime / Store     │
 ├─────────────────────────────────────────────────────┤
-│ evaluation Metrics / Collector / Report              │
+│ evaluation Dataset / Evaluator / Runner / Report     │
+│ observability OTel / Prometheus / Cost              │
 ├─────────────────────────────────────────────────────┤
 │ database  SQLite / Repository / Migration             │
 ├─────────────────────────────────────────────────────┤
@@ -20,7 +21,8 @@
 ```
 
 依赖方向严格自上而下：`api → runtime → llm`；`database` 只依赖 `core`，`evaluation`
-只依赖 `runtime`，`core` 作为横切基础被各层复用。反向依赖（如 `core` 引用 `api`）被禁止。
+只依赖 `runtime`，`observability` 作为横切能力供 API / Runtime / Repository 使用，
+`core` 作为基础被各层复用。反向依赖（如 `core` 引用 `api`）被禁止。
 
 ## 模块职责
 
@@ -37,7 +39,8 @@
 | 内置工具 | `runtime/builtin_tools.py` | 通用工具与默认工具注册表工厂 |
 | 路径沙箱 | `runtime/sandbox.py` | 把文件操作约束在 `workspace_root` 内，并拦截敏感文件 |
 | 本地工具 | `runtime/local_tools.py` | 目录浏览、文件读写、文本搜索、命令执行 |
-| 联网工具 | `runtime/web_tools.py` | 网页抓取（SSRF 防护）与联网搜索 |
+| 联网工具 | `runtime/web_tools.py` | 网页抓取（SSRF 防护、TTL cache）与联网搜索 |
+| 进程缓存 | `core/cache.py` | 有界 TTL + LRU 通用缓存 |
 | 运行内核 | `runtime/runtime.py` | 迭代调用模型、统计用量、产出 `RunResult` |
 | 会话记忆 | `runtime/memory.py` | 按 `session_id` 保存短期记忆，含 LRU 淘汰与轮次对齐截断 |
 | 长期记忆 | `runtime/long_term_memory.py` | SQLite 持久化 + 关键词加权召回，跨会话保留 |
@@ -65,7 +68,13 @@
 | 平台仓储入口 | `repositories/` | Agent / Run / Tool 的规范导入入口 |
 | 评估指标 | `evaluation/metrics.py` | latency / token / tool-call 指标与可扩展 `Metric` 抽象 |
 | 评估采集 | `evaluation/collector.py` | `Evaluator` / `EvaluationCollector` |
-| 评估报告 | `evaluation/report.py` | `EvaluationReport` 的 JSON 与 Markdown 格式化 |
+| 评估契约 | `evaluation/models.py` | Dataset / Case / Result / Run 数据契约 |
+| 评估执行 | `evaluation/runner.py` | 并发运行 Case 并执行 Evaluator |
+| 评估评分 | `evaluation/evaluators/` | Exact / Contains / Tool / Rule / LLM Judge |
+| 评估报告 | `evaluation/report.py` | 质量、成本与可靠性报告 |
+| 回归比较 | `evaluation/regression.py` | Baseline vs Candidate 差异 |
+| 遥测 | `observability/tracing.py`, `metrics.py` | OTel Span、Prometheus 指标与敏感字段过滤 |
+| 成本估算 | `observability/cost.py` | 可配置 pricing map 与 `estimated_cost` |
 | 持久化注册表 | `runtime/sqlite_registry.py` | `SQLiteAgentRegistry`：Agent 定义落盘 |
 | 运行记录 | `runtime/run_store.py` | `RunStore`：运行历史落盘，支持过滤分页 |
 | 审计日志 | `runtime/audit.py` | `AuditLog`：谁/何时/做了什么/结果，上下文字段自动捕获 |
@@ -141,6 +150,12 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 | 静态配置密钥只作管理员引导 | 新部署没有任何数据库密钥时仍需一个可签发第一把钥匙的入口 |
 | 路由权限 + 工具执行权限双重检查 | 防止绕过 HTTP 路由或模型直接构造工具调用 |
 | 子 Agent 无状态运行 | 父子共用会话记忆会让两个上下文互相污染，任务自包含更可预测 |
+| Tool 默认不可并发 | 只有显式 `parallel_safe=True` 的工具才并发，副作用工具严格顺序 |
+| Tool timeout 在 Registry 层统一实现 | 避免每个 Tool 重复实现超时，同时允许 Tool 覆盖默认值 |
+| Web cache 只缓存稳定文本 | 错误、no-store/private、set-cookie 与敏感 query 一律绕过缓存 |
+| Memory budget 双重限制 | 字符数与近似 token 同时设上限，防止上下文随历史增长 |
+| 价格只来自配置 | 不硬编码厂商价格；没有价格时 cost 为 `null`，避免把未知误报为零 |
+| Reliability rates 由 RunAggregate 统一计算 | Dashboard、Evaluation 与告警复用同一套分母定义 |
 
 ## 扩展点
 
@@ -153,9 +168,9 @@ RunResult                       输出 + 用量 + 耗时 + tool_call_count → R
 
 ## v0.1 边界
 
-阶段 1 已全部完成（Tool Calling、Planning、短期与长期记忆、Multi-Agent 委托、流式回复），
-阶段 2 已完成 SQLite 持久化结构对齐、Agent 生命周期管理、Run 查询完善、
-Dashboard 只读接口、迁移账本、Repository 基座与 API Key 权限；阶段 3 已完成
-多租户 User / Workspace / 资源隔离、Tool Policy、Quota、Rate Limit、
-基础 Evaluation 与审计/链路追踪。**尚未实现**：用户账号与工作区隔离、
-配额与限流、向量检索、评测集与自动评分、Prometheus/OpenTelemetry 导出与容器化部署。这些能力按 `TODO.md` 的阶段推进，接入时保持既有分层与接口不变。
+阶段 1–3 已完成 Runtime、Tool Calling、Memory、Planning、Multi-Agent、流式回复、
+多租户与平台安全能力；Phase 4 已完成 Evaluation 2.0、OpenTelemetry / Prometheus、
+Docker / CI、cancellation、Tool timeout 与并发、Web cache、Memory budget、Cost tracking
+和 Reliability metrics。**尚未实现**：username/password + JWT/session 终端用户登录、
+向量检索、独立 Evaluation worker、Kubernetes、Redis/PostgreSQL 等外部基础设施。
+这些能力按 `TODO.md` 推进，接入时保持既有分层与接口不变。

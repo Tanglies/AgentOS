@@ -45,6 +45,7 @@ $env:AGENTOS_API__CORS_ORIGINS = '["https://app.example.com"]'
 | `AGENTOS_LLM__MAX_RETRIES` | `2` | 可重试错误的最大重试次数（0-10） |
 | `AGENTOS_LLM__TEMPERATURE` | `0.0` | 默认采样温度（0.0-2.0） |
 | `AGENTOS_LLM__MAX_TOKENS` | 空 | 默认最大输出 token |
+| `AGENTOS_LLM__PRICING` | `{}` | 可选模型价格 map，用于估算 cost；格式见下方示例 |
 
 可重试状态码：`408 409 425 429 500 502 503 504`；重试使用指数退避。
 超时映射为 `LLMTimeoutError`（HTTP 504），上游 4xx/5xx 映射为 `LLMProviderError`（HTTP 502）。
@@ -140,8 +141,8 @@ curl.exe http://127.0.0.1:8000/api/v1/api-keys `
   -d $body
 ```
 
-当前 API Key 是平台级权限，尚未提供用户账号、配额与工作区隔离；这些能力在后续
-阶段实现前，不应把同一实例直接暴露给互不信任的用户。
+当前认证是平台级 API Key；User / Workspace 模型、资源隔离、Quota 与 Rate Limit 已在 Phase 3 完成。
+面向终端用户的 username/password + JWT/session 登录体系尚未实现，见 TODO。
 
 ### 记忆（`memory`）
 
@@ -168,6 +169,8 @@ OpenAI 兼容接口会因为 tool_calls 缺少对应结果而报错。
 | `AGENTOS_MEMORY__LONG_TERM_DB_PATH` | `.agentos/memory.db` | SQLite 文件路径，已加入 `.gitignore` |
 | `AGENTOS_MEMORY__LONG_TERM_AUTO_RECALL` | `true` | 每次运行前是否自动召回并注入系统提示词 |
 | `AGENTOS_MEMORY__LONG_TERM_RECALL_LIMIT` | `5` | 单次最多召回条数（1-20） |
+| `AGENTOS_MEMORY__LONG_TERM_MAX_CONTEXT_CHARS` | `6000` | 注入系统提示词的长期记忆字符预算（64-100000） |
+| `AGENTOS_MEMORY__LONG_TERM_MAX_CONTEXT_TOKENS` | `1500` | 注入系统提示词的近似 token 预算（16-100000） |
 
 检索是**关键词匹配**：查询切成英文词与中文二元组，按命中词长度加权排序。
 这样不需要 embedding 依赖、也不额外调用模型；代价是同义改写召回率有限，后续可换成向量检索。
@@ -184,6 +187,7 @@ OpenAI 兼容接口会因为 tool_calls 缺少对应结果而报错。
 | `AGENTOS_TOOLS__SHELL_TIMEOUT_SECONDS` | `30` | 命令执行超时（1-600 秒） |
 | `AGENTOS_TOOLS__MAX_READ_BYTES` | `256000` | 单文件读取上限（字节） |
 | `AGENTOS_TOOLS__MAX_OUTPUT_CHARS` | `16000` | 工具输出回填给模型的最大字符数 |
+| `AGENTOS_TOOLS__DEFAULT_TIMEOUT_SECONDS` | `30` | ToolRegistry 统一执行超时；Tool 可单独覆盖 |
 
 #### 联网工具
 
@@ -191,6 +195,9 @@ OpenAI 兼容接口会因为 tool_calls 缺少对应结果而报错。
 | --- | --- | --- |
 | `AGENTOS_TOOLS__WEB_TIMEOUT_SECONDS` | `15` | 网页抓取与搜索的请求超时（1-120 秒） |
 | `AGENTOS_TOOLS__MAX_WEB_BYTES` | `512000` | 单次抓取的响应体上限（字节） |
+| `AGENTOS_TOOLS__WEB_CACHE_ENABLED` | `true` | `fetch_url` 进程内 TTL cache 开关 |
+| `AGENTOS_TOOLS__WEB_CACHE_TTL_SECONDS` | `300` | cache TTL（秒） |
+| `AGENTOS_TOOLS__WEB_CACHE_MAX_ENTRIES` | `128` | cache 最大条目数，超出按 LRU 淘汰 |
 | `AGENTOS_TOOLS__WEB_SEARCH_API_URL` | `https://api.tavily.com/search` | 搜索接口地址（Tavily 兼容） |
 | `AGENTOS_TOOLS__WEB_SEARCH_API_KEY` | 空 | 搜索 API Key；**未配置时不注册 `web_search`** |
 | `AGENTOS_TOOLS__WEB_SEARCH_MAX_RESULTS` | `5` | 单次搜索返回的最大结果数（1-20） |
@@ -230,6 +237,38 @@ JSON 格式示例：
 ```json
 {"level":"INFO","logger":"agentos.runtime.runtime","message":"agent run completed","request_id":"req_3b84...","run_id":"run_3f2a...","agent":"assistant","iterations":1,"duration_ms":0.161,"total_tokens":12,"timestamp":"2026-09-11T02:34:11.512Z"}
 ```
+
+### Evaluation（`evaluation`）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_EVALUATION__DB_PATH` | `.agentos/evaluations.db` | Evaluation run 持久化路径 |
+| `AGENTOS_EVALUATION__MAX_RECORDS` | `1000` | 每个 Workspace 保留的评测记录数 |
+| `AGENTOS_EVALUATION__MAX_CONCURRENCY` | `4` | 单次 Dataset 的并发 Case 数 |
+| `AGENTOS_EVALUATION__DATASET_ROOT` | `evals` | JSONL Dataset 根目录，API 不允许越界 |
+| `AGENTOS_EVALUATION__JUDGE_ENABLED` | `false` | 是否启用 LLM Judge（会产生模型调用费用） |
+| `AGENTOS_EVALUATION__JUDGE_MODEL` | 空 | Judge 模型名；为空时使用当前默认模型 |
+
+### Observability（`observability`）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AGENTOS_OBSERVABILITY__ENABLED` | `false` | 是否配置 OpenTelemetry tracing |
+| `AGENTOS_OBSERVABILITY__SERVICE_NAME` | `agentos` | OTel service.name |
+| `AGENTOS_OBSERVABILITY__OTLP_ENDPOINT` | 空 | OTLP HTTP endpoint，例如 `http://collector:4318` |
+| `AGENTOS_OBSERVABILITY__EXPORT_TRACES` | `false` | 是否实际导出 trace |
+| `AGENTOS_OBSERVABILITY__EXPORT_METRICS` | `false` | 是否启用 OTel metrics exporter |
+| `AGENTOS_OBSERVABILITY__SAMPLE_RATIO` | `1.0` | trace 采样比例（0-1） |
+| `AGENTOS_OBSERVABILITY__PROMETHEUS_ENABLED` | `false` | 是否开放 `/metrics` |
+| `AGENTOS_OBSERVABILITY__METRICS_PATH` | `/metrics` | Prometheus endpoint 路径 |
+
+模型价格配置示例：
+
+```powershell
+$env:AGENTOS_LLM__PRICING = '{"your-model":{"prompt_tokens_per_million":0.5,"completion_tokens_per_million":1.5}}'
+```
+
+价格只做配置，不内置任何厂商默认值；没有匹配价格的模型，`estimated_cost` 为 `null`。
 
 ## 提供方说明
 
@@ -284,7 +323,7 @@ db = DatabaseManager(
 
 ## 评估模块
 
-`agentos.evaluation` 提供三类基础指标：
+`agentos.evaluation` 同时提供旧版工程指标和 Phase 4 质量评估。基础指标包括：
 
 - `latency`：avg / p50 / p95 / max；
 - `tokens`：prompt / completion / total / avg_per_run；
@@ -292,7 +331,8 @@ db = DatabaseManager(
 
 `Evaluator` 从 `RunRepository` 读取聚合数据，API 的评估响应保持既有格式；
 `Metric` 是可扩展抽象，额外指标可通过 `Evaluator.collect()` 获取。
-详细说明见 [Evaluation](evaluation.md)。
+质量评估支持 JSONL Dataset、规则 Evaluator、工具轨迹、可选 Judge 和回归比较，
+详见 [Evaluation Framework](evaluation-framework.md)；工程指标见 [Evaluation](evaluation.md)。
 
 ## 安全注意
 

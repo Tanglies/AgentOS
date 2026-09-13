@@ -98,6 +98,12 @@ docs/             # 架构、配置与开发文档
 | `tests/test_run_query_api.py` | Run 过滤、双分页、token_usage 与权限 |
 | `tests/test_dashboard_api.py` | Overview、工具统计、错误列表、Dashboard 权限 |
 | `tests/test_evaluation_api.py` | Evaluation 汇总、过滤、异常与权限 |
+| `tests/test_eval_dataset.py` / `test_eval_rules.py` / `test_eval_runner.py` | JSONL、规则评分、工具轨迹、并发 Runner |
+| `tests/test_llm_judge.py` / `test_eval_regression.py` | Judge 默认关闭、解析与 Baseline/Candidate |
+| `tests/test_observability_tracing.py` / `test_observability_metrics.py` | OTel Span、敏感字段过滤、Prometheus 指标 |
+| `tests/test_cancellation.py` / `test_tool_concurrency.py` | 取消传播、timeout 与串并行策略 |
+| `tests/test_cache.py` / `test_memory_budget.py` / `test_cost.py` / `test_reliability_metrics.py` | Phase 4D 性能与成本回归 |
+| `tests/test_docker_config.py` | Dockerfile、Compose 与 CI 结构检查 |
 
 ## 数据库迁移规范
 
@@ -131,6 +137,7 @@ test: cover llm retry backoff
 
 1. `.\.venv\Scripts\python.exe -m pytest` 全部通过
 2. `.\.venv\Scripts\python.exe -m ruff check .` 无告警
+3. 有 Docker 的环境执行 `docker build -t agentos:local .`；CI 会执行同一检查
 3. 同步更新 `CHANGELOG.md`；核心功能变化同步更新 `README.md`
 
 ## 常见问题
