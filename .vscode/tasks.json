@@ -6,7 +6,15 @@
       "detail": "启动 FastAPI 服务，读取 .env 配置；访问 http://127.0.0.1:8000/docs",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "agentos", "serve", "--host", "127.0.0.1", "--port", "8000"],
+      "args": [
+        "-m",
+        "agentos",
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {
@@ -33,7 +41,16 @@
       "detail": "开发模式，修改 Python 代码后自动重启；端口 8000",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "agentos", "serve", "--host", "127.0.0.1", "--port", "8000", "--reload"],
+      "args": [
+        "-m",
+        "agentos",
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+        "--reload"
+      ],
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {
@@ -55,7 +72,15 @@
       "detail": "使用本地测试 API Key：sk-local-test",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "agentos", "serve", "--host", "127.0.0.1", "--port", "8000"],
+      "args": [
+        "-m",
+        "agentos",
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {
@@ -80,7 +105,9 @@
       "detail": "使用 .env 配置的真实模型执行冒烟测试，会消耗 token",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["examples\\qwen_smoke.py"],
+      "args": [
+        "examples\\qwen_smoke.py"
+      ],
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {
@@ -99,7 +126,11 @@
       "label": "AgentOS: 运行测试",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "pytest", "-q"],
+      "args": [
+        "-m",
+        "pytest",
+        "-q"
+      ],
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {
@@ -119,7 +150,12 @@
       "label": "AgentOS: 代码检查 (ruff)",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "ruff", "check", "."],
+      "args": [
+        "-m",
+        "ruff",
+        "check",
+        "."
+      ],
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {
@@ -139,13 +175,95 @@
       "detail": "在现有 .venv 中安装 AgentOS 与开发依赖",
       "type": "shell",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "pip", "install", "-e", ".[dev]"],
+      "args": [
+        "-m",
+        "pip",
+        "install",
+        "-e",
+        ".[dev]"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
       "presentation": {
         "reveal": "always",
         "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentOS Dashboard: 安装前端依赖",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "install"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentOS Dashboard: 启动前端",
+      "detail": "启动 Vite Dashboard，访问 http://127.0.0.1:5173",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AgentOS Dashboard: 构建",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "run",
+        "build"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentOS Dashboard: 测试",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "test"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
       },
       "problemMatcher": []
     }
