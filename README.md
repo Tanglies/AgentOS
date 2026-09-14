@@ -1,534 +1,437 @@
 # AgentOS
 
-一个企业级大模型 Agent 平台，目标能力：Tool Calling、Memory、Evaluation 与 Observability。
+**A production-oriented LLM Agent Platform for agent execution, tool orchestration, memory, evaluation, and runtime observability.**
 
-当前版本：**v0.1.0（Phase 4 Production Engineering）** —— Runtime、Tool Calling、Memory、Multi-Agent、多租户平台、Evaluation 2.0、OpenTelemetry / Prometheus、Docker 与 CI 已落地。
+AgentOS 是一个面向工程实践的大模型 Agent 平台，不只是对 LLM API 的简单封装。它将 Agent Runtime、Tool Calling、Memory、Planning、Multi-Agent、质量评估、可观测性和多租户平台能力组织为一套可运行、可测试、可部署的工程系统。
 
-## 能力矩阵
+[![CI](https://github.com/Tanglies/AgentOS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Tanglies/AgentOS/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-500%2B-brightgreen)](tests)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-| 模块 | 能力 | 状态 |
-| --- | --- | --- |
-| HTTP 服务 | FastAPI 应用、统一错误响应、请求 ID、健康探针、OpenAPI 文档 | ✅ v0.1 |
-| 多租户 | User / Workspace / Membership / 资源隔离 / 请求上下文租户信息 | ✅ Phase 3 |
-| 认证与权限 | API Key 中间件、数据库密钥、`资源:动作` 权限、工具双层鉴权 | ✅ Phase 3 |
-| Agent 持久化 | 默认 SQLite 存储，重启不丢 Agent | ✅ v0.1 |
-| 运行记录 | 落盘 SQLite，支持历史查询、过滤、分页、排序 | ✅ v0.1 |
-| 数据访问层 | `database` 包、迁移账本、Repository 基座 + Agent / Run / Memory / Audit / API Key 仓储 | ✅ v0.1 |
-| Evaluation | 工程指标 + JSONL Dataset、规则 Evaluator、轨迹校验、可选 LLM Judge、回归对比 | ✅ Phase 4A |
-| 可观测性 | trace 贯穿全链路、审计日志、OpenTelemetry Span、Prometheus `/metrics` | ✅ Phase 4B |
-| Agent Runtime | Agent 定义、消息模型、运行循环、token 统计、运行结果 | ✅ v0.1 |
-| LLM 抽象 | `LLMClient` 接口、echo 客户端、OpenAI 兼容客户端、注册表工厂 | ✅ v0.1 |
-| 配置管理 | pydantic-settings，环境变量 / `.env` / 默认值三级覆盖 | ✅ v0.1 |
-| 日志系统 | 结构化日志（console / json）、请求上下文、敏感字段脱敏 | ✅ v0.1 |
-| Agent 生命周期 | 创建、分页查询、详情、删除，结构化字段持久化 | ✅ v0.1 |
-| Dashboard | 按 Workspace 聚合运行、工具、错误与配额使用量 | ✅ Phase 3 |
-| Quota / Rate Limit | Workspace 配额、Usage、进程内 sliding-window 限流 | ✅ Phase 3 |
-| Tool Calling | 工具注册、参数校验、调用与结果回填 | ✅ v0.1 |
-| 本地工具 | 目录浏览、文件读写、文本搜索、命令执行（沙箱 + 默认关闭命令） | ✅ v0.1 |
-| Planning | 任务分解、步骤跟踪、进度注入系统提示词 | ✅ v0.1 |
-| Memory | 短期会话记忆（内存）+ 长期记忆（SQLite 持久化、关键词检索） | ✅ v0.1 |
-| Multi-Agent | 委托式协作（`delegate_to_agent`）、深度限制与子 Agent 隔离 | ✅ v0.1 |
-| Reliability | SSE 取消传播、统一 Tool timeout、并行安全 Tool、TTL cache、Memory budget、Cost 估算 | ✅ Phase 4D |
-| Docker / CI | 多阶段非 root 镜像、Compose、GitHub Actions ruff/pytest/docker build | ✅ Phase 4C |
+## Overview
 
-## 架构
+A conventional LLM application often looks like this:
+
+```text
+User request -> Prompt -> LLM -> Response
+```
+
+AgentOS treats the LLM as one component inside a larger execution system:
+
+```text
+User / Client
+      |
+      v
+FastAPI API Layer
+      |
+      v
+Agent Runtime
+  |       |       |       |
+  |       |       |       +--> Multi-Agent delegation
+  |       |       +----------> Planning
+  |       +------------------> Tool orchestration
+  +--------------------------> Memory
+      |
+      v
+LLM abstraction / Repository / Runtime state
+      |
+      v
+Evaluation / Observability / Audit / Quota
+      |
+      v
+Final response
+```
+
+The platform focuses on the parts that make Agent systems operable rather than just demonstrable:
+
+- Agent execution lifecycle and bounded iteration
+- Tool schemas, validation, timeout, concurrency, and policy checks
+- Session and long-term memory with context budgets
+- Planning state shared across Agent iterations
+- Delegation with bounded depth
+- Quality evaluation and regression comparison
+- Trace context, audit records, OpenTelemetry, and Prometheus metrics
+- Workspace isolation, API-key permissions, quota, and rate limiting
+
+## Architecture
 
 ```mermaid
-graph TD
-    Client[客户端] --> API[api 层<br/>FastAPI 路由 / 中间件 / 依赖注入]
-    API --> Runtime[runtime 层<br/>Agent / Message / AgentRuntime]
-    Runtime --> LLM[llm 层<br/>LLMClient 抽象 / echo / OpenAI 兼容]
-    Runtime --> Database[database 层<br/>SQLite / Repository / Migration]
-    Evaluation[evaluation 层<br/>Dataset / Evaluator / Runner / Report] --> Runtime
-    Observability[observability 层<br/>OTel / Prometheus / Cost] --> Runtime
-    API --> Evaluation
-    API --> Observability
-    API --> Core[core 层<br/>配置 / 日志 / 上下文 / 异常]
+flowchart TB
+    Client[User / Web Client] --> API[FastAPI API Layer]
+    API --> Runtime[Agent Runtime]
+
+    Runtime --> Tools[Tool Registry<br/>Validation / Timeout / Policy]
+    Runtime --> Memory[Session + Long-Term Memory]
+    Runtime --> Planning[Planning State]
+    Runtime --> Delegation[Multi-Agent Delegation]
+    Runtime --> LLM[Provider-Independent LLM Layer]
+    Runtime --> Repo[Repositories / SQLite]
+
+    Evaluation[Evaluation 2.0<br/>Dataset / Evaluator / Regression] --> Runtime
+    Frontend[Vue Dashboard] --> API
+    Observability[Trace / OTel / Prometheus] -.-> API
+    Observability -.-> Runtime
+    Observability -.-> Repo
+    Audit[Audit Log] --> Repo
+    Platform[Auth / Workspace / Quota / Tool Policy] --> API
+
+    LLM --> Core[Core Config / Logging / Context]
+    Repo --> Core
     Runtime --> Core
-    LLM --> Core
-    Database --> Core
+    API --> Core
 ```
 
-依赖方向固定为 `api → runtime → llm`，`core` 作为横切基础被各层复用，反向依赖被禁止。详见 [架构设计](docs/architecture.md)。
+The dependency direction remains `api -> runtime -> llm`; `database` and `evaluation` provide supporting infrastructure, while `core` is the shared cross-cutting layer.
 
-## 快速开始
+## Features
 
-环境要求：Python >= 3.11（推荐 3.12 / 3.13）。
+| Module | Capability |
+| --- | --- |
+| Agent Runtime | Agent lifecycle, iterative execution loop, streaming events, cancellation, bounded iterations and tool calls |
+| LLM Layer | Provider-independent `LLMClient`, echo provider, OpenAI-compatible provider, retry and timeout handling |
+| Tool System | JSON-schema based declarations, argument validation, execution timeout, parallel-safe execution, error feedback |
+| Built-in Tools | Time, calculation, sandboxed filesystem, safe shell executor, web fetch/search, memory, planning, delegation |
+| Tool Policy | Workspace and Agent scoped visibility, route permissions, and Runtime execution-time permission checks |
+| Memory | LRU session memory plus SQLite-backed long-term memory with workspace/user scope and context budgets |
+| Planning | Task decomposition, plan state, step updates, and system-prompt injection during each iteration |
+| Multi-Agent | `delegate_to_agent` with depth limits and stateless child-Agent execution |
+| Persistence | SQLite Repository layer for Agents, Runs, Memory, API keys, Audit, Evaluation, and migrations |
+| Run History | Filtering, pagination, ordering, token usage, tool traces, and full message history |
+| Evaluation | Runtime metrics plus JSONL datasets, rule evaluators, tool trajectory checks, optional LLM judge, and regression reports |
+| Observability | Trace/request/run context, audit records, OpenTelemetry spans, and low-cardinality Prometheus metrics |
+| Multi-Tenant | User, Workspace, membership, resource isolation, quota, usage, and sliding-window rate limit |
+| API Security | Static bootstrap keys, hashed database API keys, permission scopes, and fail-closed authentication |
+| Dashboard | Vue 3 / TypeScript observability UI for Overview, Agents, Runs, Trace, Tools, Evaluation, and Usage |
+| Deployment | Multi-stage non-root Docker image, Compose, health checks, and GitHub Actions CI |
+
+## Dashboard Preview
+
+The repository includes a real Vue dashboard and checked-in screenshots. The default Demo Mode uses deterministic mock data, so the UI can be explored without a real LLM.
+
+![AgentOS Dashboard Overview](docs/assets/dashboard-preview.png)
+
+| View | Preview |
+| --- | --- |
+| Agents | [dashboard-agents.png](docs/assets/dashboard-agents.png) |
+| Run History | [dashboard-runs.png](docs/assets/dashboard-runs.png) |
+| Execution Trace | [dashboard-trace.png](docs/assets/dashboard-trace.png) |
+| Tool Analytics | [dashboard-tools.png](docs/assets/dashboard-tools.png) |
+| Evaluation | [dashboard-evaluation.png](docs/assets/dashboard-evaluation.png) |
+| Usage | [dashboard-usage.png](docs/assets/dashboard-usage.png) |
+## Quick Start
+
+### Requirements
+
+- Python 3.11 or newer
+- Node.js 20.19 or newer for the optional Dashboard
+- Docker Desktop only if you want to use Compose
+
+### 1. Clone and install
 
 ```powershell
-# 1. 创建虚拟环境并安装（含开发依赖）
-py -3.13 -m venv .venv
+git clone https://github.com/Tanglies/AgentOS.git
+cd AgentOS
+python -m venv .venv
+
+# Windows PowerShell
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# 2. 启动服务（默认 echo 客户端，不需要任何 API Key）
-.\.venv\Scripts\python.exe -m agentos serve --port 8000
+# macOS / Linux
+# source .venv/bin/activate
+# python -m pip install -e ".[dev]"
 ```
 
-打开 <http://127.0.0.1:8000/docs> 查看交互式 API 文档。
+### 2. Configure the model provider
 
-```powershell
-# 3. 调用一次 Agent 运行
-curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
-  -H "Content-Type: application/json" `
-  -d '{"input": "你好，介绍一下你自己"}'
-```
-
-响应示例：
-
-```json
-{
-  "run_id": "run_3f2a2a6c8526488c",
-  "agent": "assistant",
-  "output": "Echo: 你好，介绍一下你自己",
-  "iterations": 1,
-  "duration_ms": 0.161,
-  "tool_call_count": 0,
-  "finish_reason": "stop",
-  "usage": {"prompt_tokens": 9, "completion_tokens": 3, "total_tokens": 12}
-}
-```
-
-### 接入真实模型
-
-默认的 `echo` 提供方只做回显，用于本地验证链路。接入任意 OpenAI 兼容服务：
+The default `echo` provider is deterministic and does not require an API key. To use an OpenAI-compatible provider:
 
 ```powershell
 $env:AGENTOS_LLM__PROVIDER = "openai_compatible"
-$env:AGENTOS_LLM__BASE_URL = "https://api.deepseek.com/v1"
-$env:AGENTOS_LLM__API_KEY  = "sk-..."
-$env:AGENTOS_LLM__MODEL    = "deepseek-chat"
-.\.venv\Scripts\python.exe -m agentos serve
+$env:AGENTOS_LLM__BASE_URL = "https://your-provider.example/v1"
+$env:AGENTOS_LLM__API_KEY = "your-api-key"
+$env:AGENTOS_LLM__MODEL = "your-model"
 ```
 
-也可以复制 `.env.example` 为 `.env` 后填写。全部配置项见 [配置说明](docs/configuration.md)。
+You can also copy `.env.example` to `.env` and edit it locally. `.env` is ignored by Git.
 
-### 测试与静态检查
+### 3. Start the backend
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest        # 运行测试
-.\.venv\Scripts\python.exe -m ruff check .  # 代码风格与静态检查
+.\.venv\Scripts\python.exe -m agentos serve --host 127.0.0.1 --port 8000
 ```
 
-### Tool Calling（工具调用）
-
-Agent 通过 `tools` 字段声明可用工具。工具由**服务端代码注册**（不接受通过 HTTP 注入可执行代码），
-Runtime 会把工具声明透传给模型，并在模型请求调用时执行工具、把结果回填给模型。
-
-内置工具：
-
-| 工具 | 说明 | 默认 |
-| --- | --- | --- |
-| `get_current_time` | 按 UTC 偏移返回当前时间 | ✅ |
-| `calculate` | AST 白名单算术求值（不使用 `eval`） | ✅ |
-| `list_directory` | 列出工作区目录内容 | ✅ |
-| `read_file` | 读取工作区文本文件 | ✅ |
-| `search_text` | 在工作区内按正则搜索 | ✅ |
-| `write_file` | 写入文本文件（覆盖需 `overwrite=true`） | ✅ |
-| `run_command` | 执行 shell 命令 | ⚠️ **默认关闭** |
-| `fetch_url` | 抓取公网网页并转纯文本（SSRF 防护） | ✅ |
-| `web_search` | 联网搜索（需配置 API Key） | 需 Key |
-| `remember` | 写入长期记忆 | ✅ |
-| `recall` | 检索长期记忆 | ✅ |
-| `create_plan` | 创建执行计划（任务分解） | ✅ |
-| `update_plan_step` | 更新计划步骤状态 | ✅ |
-| `delegate_to_agent` | 把子任务委托给其他 Agent | ✅ |
-
-**安全模型**：文件工具的路径统一经过 `WorkspaceSandbox`，`..` 逃逸、外部绝对路径与
-外部符号链接都会被拒绝；`.env`、私钥、API Key、`secrets/` 等敏感文件被列入黑名单。
-`run_command` 执行的是真实 shell，**命令内部不受沙箱约束**，需显式设置
-`AGENTOS_TOOLS__ALLOW_SHELL=true` 才会启用。
-
-`fetch_url` 只允许访问**公网** http/https 地址：回环、内网与云元数据地址
-（如 `169.254.169.254`）会被拒绝，重定向也会逐跳重新校验。
-`web_search` 兼容 Tavily 接口，配置 `AGENTOS_TOOLS__WEB_SEARCH_API_KEY` 后自动启用。
-详见 [配置说明](docs/configuration.md)。
+Verify readiness and make the first request:
 
 ```powershell
-# 查看服务端已注册的工具
-curl.exe http://127.0.0.1:8000/api/v1/tools
+curl.exe http://127.0.0.1:8000/health/ready
 
-# 运行内置助手，由模型自行决定是否调用工具
 curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
   -H "Content-Type: application/json" `
-  -d '{"input": "calculate (12+8)*3"}'
+  -d '{"input":"Explain what AgentOS does in one sentence."}'
 ```
 
-响应里的 `tool_call_count` 表示本次运行实际执行的工具次数；`messages` 中能看到完整的
-`assistant(tool_calls)` -> `tool(结果)` -> `assistant(最终回答)` 轨迹。
+Open the API documentation at <http://127.0.0.1:8000/docs>.
 
-自定义工具只需继承 `Tool` 并注册进 `ToolRegistry`：
+### 4. Start the Dashboard
 
-```python
-from agentos.runtime.tools import Tool, ToolRegistry
-
-
-class WeatherTool(Tool):
-    """查询指定城市的当前天气。"""
-
-    name = "get_weather"
-    description = "查询指定城市的当前天气"
-    parameters = {
-        "type": "object",
-        "properties": {"city": {"type": "string", "description": "城市名，例如 上海"}},
-        "required": ["city"],
-    }
-
-    async def run(self, city: str) -> str:
-        return f"{city}：晴，26℃"
-
-
-registry = ToolRegistry([WeatherTool()])
-```
-
-工具执行失败（工具不存在、参数非法、内部异常）不会中断运行，而是把错误文本回填给模型，
-让模型自行决定是否修正参数或向用户说明。
-
-### 认证与权限（API Key）
-
-默认**关闭**，方便本地开发。对外暴露前必须开启。`AGENTOS_AUTH__API_KEYS`
-里的静态密钥视为**管理员**（拥有 `*`），只用于在没有数据库密钥时完成首次引导；
-日常调用应使用 `POST /api/v1/api-keys` 签发的数据库密钥。
-
-```powershell
-$env:AGENTOS_AUTH__ENABLED = "true"
-$env:AGENTOS_AUTH__API_KEYS = '["sk-bootstrap-admin"]'
-.\.venv\Scripts\python.exe -m agentos serve --port 8000
-```
-
-用静态管理员密钥签发一把普通密钥（明文只在创建响应里返回一次）：
-
-```powershell
-$body = '{"name":"worker","permissions":["run:create","run:read","tool:read","tool:execute"]}'
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/api/v1/api-keys" `
-  -Method Post `
-  -Headers @{ "X-API-Key" = "sk-bootstrap-admin" } `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-后续请求携带数据库密钥：
-
-```powershell
-curl.exe http://127.0.0.1:8000/api/v1/runs -H "X-API-Key: sk-agentos-..."
-```
-
-权限采用 `资源:动作` 命名：`agent:read` / `agent:write` / `run:create` /
-`run:read` / `tool:read` / `tool:execute` / `session:read` / `session:write` /
-`memory:read` / `memory:write` / `evaluation:read` / `audit:read` /
-`apikey:admin`。普通数据库密钥的默认权限不包含 `apikey:admin`；
-工具是否真正执行还会在 Runtime 执行点再次检查 `tool:execute`，不能只靠路由绕过。
-
-管理接口：
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/v1/api-keys` | 列出数据库密钥元数据，不返回明文或哈希 |
-| POST | `/api/v1/api-keys` | 签发密钥；明文只在本次响应返回 |
-| DELETE | `/api/v1/api-keys/{id}` | 软吊销密钥，保留审计记录 |
-
-密钥数据库默认是 `.agentos/api_keys.db`，只保存 SHA-256 哈希；吊销后立即拒绝认证。
-开启但没有任何可用密钥时，服务会**拒绝所有请求**（fail closed）。当前 API Key
-是平台级权限，配合 Phase 3 的 User / Workspace 模型实现资源隔离；username/password + JWT/session 终端用户登录尚未实现，后续按 `TODO.md` 推进。
-
-### 运行历史与评估
-
-每次运行（含失败）都会落盘，可按 Agent / 会话 / 状态过滤，按时间正序或倒序排列：
-
-```powershell
-# 历史列表（默认最新在前）
-curl.exe "http://127.0.0.1:8000/api/v1/runs?agent=assistant&limit=10"
-
-# 页码分页，响应同时保留 limit/offset 兼容
-curl.exe "http://127.0.0.1:8000/api/v1/runs?page=2&page_size=10"
-
-# 按 created_at 排序
-curl.exe "http://127.0.0.1:8000/api/v1/runs?sort=-created_at"
-
-# 单次运行详情（含完整消息轨迹）
-curl.exe "http://127.0.0.1:8000/api/v1/runs/run_xxxx"
-
-# 评估汇总
-curl.exe "http://127.0.0.1:8000/api/v1/evaluation/summary?agent=assistant"
-
-# Dashboard 只读数据
-curl.exe "http://127.0.0.1:8000/api/v1/dashboard/overview"
-curl.exe "http://127.0.0.1:8000/api/v1/dashboard/tools"
-curl.exe "http://127.0.0.1:8000/api/v1/dashboard/errors"
-```
-
-评估指标基于运行记录聚合，**不调用模型打分**：
-
-| 指标 | 内容 |
-| --- | --- |
-| 延迟 | avg / p50 / p95 / max（毫秒） |
-| token | prompt / completion / total / 每次运行均值 |
-| 成功率 | completed / 总数 |
-| 工具调用 | 合计 / 均值 / 单次最多 / 多少运行用了工具 |
-| 顶层均值 | `average_latency` / `average_tokens` / `average_tool_calls` |
-
-```json
-{
-  "runs": 12, "succeeded": 11, "failed": 1, "success_rate": 0.9167,
-  "latency": {"avg": 1832.5, "p50": 1701.2, "p95": 3120.8, "max": 3402.1},
-  "tokens": {"prompt": 8421, "completion": 3102, "total": 11523, "avg_per_run": 960.25},
-  "tool_calls": {"total": 18, "avg_per_run": 1.5, "max_in_run": 4, "runs_with_tools": 9}
-}
-```
-
-> 数据访问分三层：`database/connection.py` 管连接、建表与迁移，
-> `database/repository.py` 定义 Repository 基座，`runtime/repositories.py` 管 SQL 与模型转换；
-> 三个存储只是业务语义的外壳。规范 Repository 入口位于 `repositories/`，
-> 旧 `core/database.py` 路径仍保留兼容。
-
-### 多 Agent 协作
-
-主 Agent 可以把子任务**委托**给其他已注册的 Agent，实现最小可用的消息路由：
-
-```powershell
-# 注册一个专家 Agent
-curl.exe -X POST http://127.0.0.1:8000/api/v1/agents `
-  -H "Content-Type: application/json" `
-  -d '{"name": "researcher", "description": "负责资料调研", "system_prompt": "你是技术调研专家。"}'
-
-# 主 Agent 会自动判断是否委托（工具描述里已列出可用 Agent）
-curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
-  -H "Content-Type: application/json" `
-  -d '{"input": "调研一下 Agent 平台最核心的三个能力，有专门 Agent 就交给它做"}'
-```
-
-| 约束 | 说明 |
-| --- | --- |
-| 深度限制 | 委托链最多 3 层（`max_delegation_depth`），防止 A → B → A 无限递归 |
-| 自我委托 | 直接拒绝，避免无意义递归 |
-| 子 Agent 无状态 | 看不到父级对话，因此委托任务必须**自包含** |
-| 可用 Agent | 通过 `GET /api/v1/agents` 查看，名字会动态写进工具描述 |
-
-> 通过 API 新建的 Agent 默认**不带任何工具**，需要显式在 `tools` 字段里声明。
-
-### 流式回复（SSE）
-
-`POST /api/v1/runs/stream` 以 Server-Sent Events 逐段推送，适合聊天类前端。
-事件类型：`start` / `delta` / `tool_call` / `tool_result` / `end` / `error`。
-
-```powershell
-curl.exe -N -X POST http://127.0.0.1:8000/api/v1/runs/stream `
-  -H "Content-Type: application/json" `
-  -d '{"input": "用三句话介绍 AgentOS"}'
-```
-
-```text
-event: start
-data: {"type": "start", "run_id": "run_...", "agent": "assistant", "session_id": "default"}
-
-event: delta
-data: {"type": "delta", "delta": "AgentOS "}
-
-event: end
-data: {"type": "end", "result": { ... 完整 RunResult ... }}
-```
-
-两个细节：文本增量**边收边发**，不做整段缓冲；模型调用工具时会先推 `tool_call` /
-`tool_result` 事件再继续输出。响应带 `x-accel-buffering: no`，避免 Nginx 缓冲。
-
-> 流式请求**不做重试** —— 一旦开始接收数据，重放会导致内容重复。
-
-### 会话记忆（Memory）
-
-会话记忆**默认开启**：不传 `session_id` 时落到默认会话 `default`，
-服务端自动保存并复用最近对话；需要隔离多个会话时显式传 `session_id`。
-
-```powershell
-# 用默认会话：多轮自动记住（无需传 session_id）
-curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
-  -H "Content-Type: application/json" `
-  -d '{"input": "我叫小明"}'
-curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
-  -H "Content-Type: application/json" `
-  -d '{"input": "我叫什么名字"}'
-
-# 用独立会话：显式传 session_id
-curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
-  -H "Content-Type: application/json" `
-  -d '{"input": "我叫小明", "session_id": "chat-1"}'
-
-# 第 2 轮：服务端自动带上第 1 轮历史
-curl.exe -X POST http://127.0.0.1:8000/api/v1/runs `
-  -H "Content-Type: application/json" `
-  -d '{"input": "我叫什么名字", "session_id": "chat-1"}'
-```
-
-短期会话记忆是**进程内实现**，重启即清空；长期记忆已落盘到 SQLite 并支持关键词召回，向量/语义检索属于后续阶段。
-
-| 接口 | 说明 |
-| --- | --- |
-| `GET /api/v1/sessions` | 列出全部会话 |
-| `GET /api/v1/sessions/{id}` | 查看会话消息 |
-| `DELETE /api/v1/sessions/{id}` | 清除会话记忆 |
-
-优先级：显式 `session_id` > 显式 `history`（调用方自行管理，无状态）> 默认会话。
-把 `AGENTOS_MEMORY__DEFAULT_SESSION_ID` 设为空字符串即可恢复无状态。
-
-#### 长期记忆
-
-短期记忆随进程消失，长期记忆**落盘到 SQLite**，跨会话、跨重启保留：
-
-```powershell
-# 程序化写入
-curl.exe -X POST http://127.0.0.1:8000/api/v1/memories `
-  -H "Content-Type: application/json" `
-  -d '{"content": "用户偏好用中文回答，喜欢简洁"}'
-
-curl.exe http://127.0.0.1:8000/api/v1/memories
-```
-
-Agent 也可以自己维护：内置 `remember` / `recall` 两个工具，由模型判断
-「什么值得长期记住」。此外每次运行前会**自动召回**相关记忆并注入系统提示词。
-
-检索是**关键词匹配**（英文按词、中文按二元组加权），不依赖 embedding；
-数据库默认在 `.agentos/memory.db`，已被 `.gitignore` 忽略。
-
-容量由 `AGENTOS_MEMORY__MAX_MESSAGES_PER_SESSION`（默认 50）与
-`AGENTOS_MEMORY__MAX_SESSIONS`（默认 1000，超出按 LRU 淘汰）控制。
-
-## API 一览
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/health` | 存活探针，返回版本、环境与运行时长 |
-| GET | `/health/ready` | 就绪探针，返回 LLM 提供方与已注册 Agent 数量 |
-| GET | `/api/v1/users` | 平台用户列表 |
-| POST | `/api/v1/users` | 创建平台用户 |
-| GET | `/api/v1/users/{id}` | 用户详情 |
-| GET | `/api/v1/workspaces` | 当前用户所属 Workspace |
-| POST | `/api/v1/workspaces` | 创建 Workspace |
-| GET | `/api/v1/workspaces/{id}` | Workspace 详情 |
-| PATCH | `/api/v1/workspaces/{id}` | 更新 Workspace |
-| DELETE | `/api/v1/workspaces/{id}` | 删除 Workspace |
-| GET/POST | `/api/v1/workspaces/{id}/members` | 成员列表 / 添加 |
-| DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
-| GET/PATCH | `/api/v1/quota` | Workspace 配额 |
-| GET | `/api/v1/usage` | Workspace 用量 |
-| GET/PATCH | `/api/v1/tools/{name}` | Workspace 工具策略 |
-| GET | `/api/v1/agents/{name}/tools` | Agent 工具可见性 |
-| PATCH | `/api/v1/agents/{name}/tools/{tool_name}` | Agent 工具覆盖 |
-| GET | `/api/v1/agents` | 分页列出 Agent，支持 `page` / `page_size` |
-| POST | `/api/v1/agents` | 创建 Agent |
-| GET | `/api/v1/agents/{name}` | 获取 Agent 完整详情 |
-| DELETE | `/api/v1/agents/{name}` | 删除 Agent |
-| POST | `/api/v1/runs` | 执行一次 Agent 运行 |
-| POST | `/api/v1/runs/stream` | 流式执行（SSE，逐段推送） |
-| GET | `/api/v1/runs` | 查询运行历史（支持 agent/status 过滤、page/page_size 与 created_at 排序） |
-| GET | `/api/v1/runs/{run_id}` | 查看单次运行详情（含消息轨迹） |
-| GET | `/api/v1/dashboard/overview` | Dashboard 总览指标 |
-| GET | `/api/v1/dashboard/tools` | 工具调用统计 |
-| GET | `/api/v1/dashboard/errors` | 最近失败运行 |
-| GET | `/api/v1/dashboard/usage` | 当前 Workspace 配额使用量 |
-| GET | `/api/v1/evaluation/summary` | 旧版工程指标汇总（延迟 / token / 成功率 / 工具调用） |
-| POST | `/api/v1/evaluations/run` | 启动 Dataset Evaluation（202 + 后台执行） |
-| GET | `/api/v1/evaluations` | 查询 Evaluation 运行列表 |
-| GET | `/api/v1/evaluations/{id}` | 查看逐 Case 评分与报告详情 |
-| GET | `/api/v1/dashboard/reliability` | timeout / tool / LLM / max-iteration / cancelled 指标 |
-| GET | `/metrics` | Prometheus 指标（需显式开启） |
-| GET | `/api/v1/audit` | 查询审计日志（支持过滤与排序） |
-| GET | `/api/v1/api-keys` | 列出 API Key 元数据（管理员） |
-| POST | `/api/v1/api-keys` | 签发 API Key，明文只返回一次（管理员） |
-| DELETE | `/api/v1/api-keys/{id}` | 吊销 API Key（管理员） |
-| GET | `/api/v1/tools` | 列出服务端已注册的工具 |
-| GET | `/api/v1/memories` | 列出长期记忆 |
-| POST | `/api/v1/memories` | 写入一条长期记忆 |
-| DELETE | `/api/v1/memories/{id}` | 删除一条长期记忆 |
-| GET | `/api/v1/sessions` | 列出全部会话记忆 |
-| GET | `/api/v1/sessions/{id}` | 获取会话消息详情 |
-| DELETE | `/api/v1/sessions/{id}` | 清除会话记忆 |
-| GET | `/docs` | Swagger UI（`AGENTOS_API__ENABLE_DOCS=false` 可关闭） |
-
-所有错误响应格式统一：
-
-```json
-{"error": {"code": "not_found", "message": "agent not found: ghost", "details": {"agent": "ghost"}}}
-```
-
-## 目录结构
-
-```
-src/agentos/
-├── api/          # FastAPI 装配、中间件、依赖注入、路由与请求/响应模型
-├── core/         # 配置、日志、请求上下文、异常体系；保留旧数据库导入兼容
-├── database/     # SQLite 连接、迁移、Repository 基座与持久化模型
-├── evaluation/   # 评估指标、采集器与报告格式化
-├── llm/          # LLM 客户端抽象、echo 与 OpenAI 兼容实现、工厂
-├── repositories/ # User / Workspace / Agent / Run / Tool Repository 入口
-└── runtime/      # Agent、Message、注册表、服务层与执行内核
-    └── services/ # Agent 生命周期与 Dashboard 读模型服务
-tests/            # pytest 测试：配置 / 日志 / LLM / Runtime / API / 持久化 / 平台
-docs/             # 架构、平台、配置、数据库、评估、可观测性与开发文档
-```
-
-## 文档索引
-
-- [架构设计](docs/architecture.md)
-- [多租户平台](docs/multi-tenancy.md)
-- [Workspace](docs/workspaces.md)
-- [Tool 权限](docs/tool-permissions.md)
-- [配额与限流](docs/quotas.md)
-- [平台能力](docs/platform.md)
-- [可观测性](docs/observability.md)
-- [数据库与 Repository](docs/database.md)
-- [Evaluation 工程指标](docs/evaluation.md)
-- [Evaluation 2.0](docs/evaluation-framework.md)
-- [Telemetry](docs/telemetry.md)
-- [Deployment](docs/deployment.md)
-- [Reliability](docs/reliability.md)
-- [配置说明](docs/configuration.md)
-- [开发指南](docs/development.md)
-- [变更记录](CHANGELOG.md)
-- [迭代计划](TODO.md)
-
-## 开发约定
-
-- 提交信息遵循 [Conventional Commits](https://www.conventionalcommits.org/)：`feat:` / `fix:` / `docs:` / `refactor:` / `test:`
-- 新增能力必须附带测试，并保证现有测试不被破坏
-- 每处改动都要有明确目的，避免顺手重构
-- 变更同步记录到 `CHANGELOG.md`，待办同步到 `TODO.md`
-
-## 许可证
-
-[MIT](LICENSE)# Frontend Dashboard
-
-`frontend/` 提供 Vue 3 + Vite + TypeScript + Element Plus + ECharts Dashboard，默认 Demo Mode 不依赖真实 LLM。
+In a second terminal:
 
 ```powershell
 cd frontend
-npm install
 Copy-Item .env.example .env.local
-npm run dev
+npm install
+npm run dev -- --host 127.0.0.1
 ```
 
-打开 <http://localhost:5173>。页面包括 Overview、Agents、Run History、Trace、Tools、Evaluation 和 Usage。
+Open <http://127.0.0.1:5173>. The default `.env.example` enables `VITE_DEMO_MODE=true`; set it to `false` to use live backend data.
 
-```powershell
-npm run build
-npm test
-```
-
-完整前后端 Docker：
+### 5. Docker Compose
 
 ```powershell
 docker compose up --build
 ```
 
-打开 <http://localhost:5173>，Nginx 会代理 `/api` 和 `/health` 到后端。
+This starts the backend on port `8000` and the Dashboard on port `5173`.
 
-### Dashboard Preview
+### 6. Run the verification suite
 
-![AgentOS Overview](docs/assets/dashboard-preview.png)
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
 
-更多页面截图：
+cd frontend
+npm test
+npm run build
+```
 
-- [Agents](docs/assets/dashboard-agents.png)
-- [Run History](docs/assets/dashboard-runs.png)
-- [Execution Trace](docs/assets/dashboard-trace.png)
-- [Tool Analytics](docs/assets/dashboard-tools.png)
-- [Evaluation](docs/assets/dashboard-evaluation.png)
-- [Usage](docs/assets/dashboard-usage.png)
+## Core Design
+
+### Agent Runtime
+
+`AgentRuntime` is not a single `LLM.complete()` call. It owns the execution loop: assemble system/history/user messages, stream or complete an LLM call, execute requested tools, append tool results, and continue until the model stops or the iteration/tool budget is exhausted.
+
+The runtime records `run_id`, iterations, duration, token usage, tool calls, errors, cancellation state, memory context usage, and estimated cost. `run()` is a convenience wrapper around the streaming execution path.
+
+### Tool System
+
+A tool is declared with a name, description, JSON-schema-like parameter contract, risk level, permission requirements, timeout, and `parallel_safe` flag. The execution path is:
+
+```text
+Tool schema
+  -> model selects tool
+  -> argument validation
+  -> workspace/agent policy check
+  -> route/tool permission check
+  -> timeout-bounded execution
+  -> ToolCallResult returned to Runtime
+  -> result appended as a tool message
+```
+
+Only explicitly parallel-safe tools run concurrently; tools with side effects remain ordered. Errors and timeouts are returned to the model as structured tool results instead of crashing the whole Agent run.
+
+### Memory
+
+- **Session memory** is process-local, scoped by `session_id`, and uses LRU eviction plus turn-aligned truncation.
+- **Long-term memory** is persisted in SQLite and can be scoped to a Workspace or user.
+- Recall is keyword-based and bounded by recall count, character budget, and estimated token budget.
+- A run records `memory_recall_count` and `memory_context_chars` for observability.
+
+### Planning
+
+Planning is a runtime-scoped `ExecutionPlan` stored in `contextvars`. The model can create or update a plan with `create_plan` and `update_plan_step`; the current plan is injected into the system prompt before every model iteration.
+
+### Multi-Agent
+
+`delegate_to_agent` exposes other registered Agents as a tool. Delegation is depth-limited, rejects self-delegation, and runs child Agents in a stateless context to avoid parent/child session leakage.
+
+### Multi-Tenant Platform
+
+AgentOS contains first-class User, Workspace, and membership models. Core resources are Workspace-scoped, including Agents, Runs, Memory, API keys, Audit records, Dashboard data, and Evaluation runs.
+
+The platform also provides:
+
+- Permission-scoped API keys with SHA-256 storage
+- Workspace and Agent Tool Policy
+- Quota and daily token/run budgets
+- Sliding-window rate limiting
+- Usage and reliability APIs
+
+### Evaluation
+
+HTTP success is not enough for an Agent platform. AgentOS separates engineering metrics from quality evaluation:
+
+- Latency, token usage, success rate, tool count, and tool errors
+- JSONL datasets and explicit evaluation cases
+- Exact/contains/rule evaluators
+- Tool trajectory validation against real `tool_calls`
+- Optional LLM judge, disabled by default
+- Baseline/candidate regression comparison
+- Cost and reliability aggregation
+
+### Observability
+
+The runtime carries `request_id`, `trace_id`, `run_id`, `agent_name`, `tool_name`, actor, user, and Workspace context. The platform provides:
+
+- Structured console or JSON logs
+- Audit records for Agent and Tool lifecycle events
+- OpenTelemetry spans for HTTP, Runtime, LLM, Tool, and Repository operations
+- Optional OTLP export
+- Prometheus metrics with low-cardinality labels
+- Sensitive attribute filtering for prompts, keys, memory, and message content
+## API Example
+
+Authentication is disabled by default for local development. If `AGENTOS_AUTH__ENABLED=true`, add `X-API-Key` to the request headers.
+
+Run an Agent:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/runs \
+  -H "Content-Type: application/json" \
+  -d '{"input":"Calculate (12 + 8) * 3 and explain the result."}'
+```
+
+Query Run History:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/runs?agent=assistant&limit=10"
+```
+
+Read one execution trace:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/runs/run_xxxxxxxx"
+```
+
+Read Dashboard and reliability data:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/dashboard/overview"
+curl "http://127.0.0.1:8000/api/v1/dashboard/reliability"
+curl "http://127.0.0.1:8000/api/v1/dashboard/usage"
+```
+
+Start an Evaluation run:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/evaluations/run \
+  -H "Content-Type: application/json" \
+  -d '{"dataset":"tool_calling.jsonl"}'
+```
+
+The complete route list is available in the Swagger UI at `/docs` and in [docs/evaluation-framework.md](docs/evaluation-framework.md), [docs/telemetry.md](docs/telemetry.md), and [docs/configuration.md](docs/configuration.md).
+
+## Evaluation and Observability
+
+Evaluation datasets live in `evals/`. The repository includes 20 runnable benchmark cases across Tool Calling, Memory, Planning, Multi-Agent, and Safety. Rule-based evaluators inspect real tool-call trajectories; the optional LLM judge is disabled unless explicitly configured.
+
+Observability is available through:
+
+```text
+GET /metrics                    Prometheus endpoint when enabled
+OTLP endpoint                    Optional OpenTelemetry export
+GET /api/v1/dashboard/reliability  Timeout, tool, LLM, iteration, cancellation rates
+GET /api/v1/audit                 Audit records with request/run context
+```
+
+Runtime spans include:
+
+```text
+http.request
+  -> agent.run
+      -> llm.call
+      -> tool.call
+      -> repository.query
+```
+
+## Testing
+
+The repository currently collects more than 500 automated backend tests and includes frontend component, API, and Router tests.
+
+```powershell
+# Backend
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
+
+# Frontend
+cd frontend
+npm test
+npm run build
+```
+
+Coverage includes Runtime, Tool Calling, Tool Policy, Memory, Planning, Multi-Agent, Workspace isolation, API keys, Quota/Rate Limit, Audit, Evaluation, cancellation, timeout, cache, and observability.
+
+## Roadmap
+
+### Completed
+
+- Agent Runtime, streaming, cancellation, and bounded execution
+- Tool Calling with validation, permissions, timeout, and safe concurrency
+- Session Memory, Long-Term Memory, and context budgets
+- Planning and Multi-Agent delegation
+- Agent persistence, Run History, Repository layer, and SQLite migrations
+- Multi-Tenant Workspace isolation, API-key permissions, Quota, Rate Limit, and Audit
+- Dashboard backend APIs and initial Vue Dashboard
+- Evaluation 2.0 datasets, evaluators, reports, and regression comparison
+- OpenTelemetry tracing and Prometheus metrics
+- Docker/Compose and GitHub Actions CI
+- Web cache, cost estimation, and reliability metrics
+
+### Next
+
+- End-user login with username/password and JWT or server-side sessions
+- Semantic/vector Memory retrieval
+- Independent Evaluation worker for long-running datasets
+- More production deployment examples and external database options
+- Demo GIF, repository Description, and GitHub Topics
+- Grafana dashboard and collector deployment examples
+
+## Design Philosophy
+
+AgentOS is not intended to replace higher-level Agent frameworks. It exists to make the infrastructure side of Agent systems explicit and testable:
+
+- How does an Agent run start, stop, stream, and cancel?
+- How are tool schemas validated and authorized?
+- How does memory affect prompt size and latency?
+- How do plans and delegation survive multi-step execution?
+- How can quality be evaluated beyond HTTP status codes?
+- How can a Request be traced through Runtime, LLM, Tool, and Repository boundaries?
+- How can multiple Workspaces share a process without sharing data?
+
+Implementing those boundaries directly makes the tradeoffs visible, testable, and replaceable. The LLM provider itself remains behind a small interface so the platform is not coupled to one vendor.
+
+## Project Structure
+
+```text
+src/agentos/
+  api/             FastAPI routes, middleware, dependencies, and schemas
+  core/            Configuration, logging, context, tenancy, and exceptions
+  database/        SQLite connection, migrations, repository primitives
+  evaluation/      Datasets, evaluators, runner, reports, and regression
+  llm/             LLM contracts, echo client, OpenAI-compatible client
+  observability/   Tracing, Prometheus metrics, cost estimation
+  repositories/    Platform repository entry points
+  runtime/         Agent Runtime, tools, memory, planning, services
+frontend/          Vue 3 dashboard, API layer, demo mode, tests, nginx
+evals/             JSONL benchmark datasets
+tests/             Backend pytest suite
+docs/              Architecture, configuration, deployment, and reliability docs
+```
+
+## Development
+
+Useful documents:
+
+- [Architecture](docs/architecture.md)
+- [Configuration](docs/configuration.md)
+- [Evaluation](docs/evaluation-framework.md)
+- [Telemetry](docs/telemetry.md)
+- [Deployment](docs/deployment.md)
+- [Reliability](docs/reliability.md)
+- [Development Guide](docs/development.md)
+
+Before opening a pull request, run both backend and frontend verification commands shown in [Testing](#testing).
+
+## License
+
+MIT. See [LICENSE](LICENSE).

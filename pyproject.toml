@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agentos"
 version = "0.1.0"
-description = "企业级大模型 Agent 平台：Agent Runtime、Tool Calling、Memory、Evaluation 与 Observability。"
+description = "Production-oriented LLM Agent Platform for Runtime, Tool Calling, Memory, Evaluation and Observability."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Tanglies" }]
-keywords = ["agent", "llm", "agent-platform", "fastapi"]
+keywords = ["agent", "agent-platform", "agent-runtime", "tool-calling", "evaluation", "observability", "multi-agent", "fastapi"]
 classifiers = [
     "Private :: Do Not Upload",
     "Programming Language :: Python :: 3",
