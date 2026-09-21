@@ -97,7 +97,7 @@ The dependency direction remains `api -> runtime -> llm`; `database` and `evalua
 | Planning | Task decomposition, plan state, step updates, and system-prompt injection during each iteration |
 | Multi-Agent | `delegate_to_agent` with depth limits and stateless child-Agent execution |
 | Persistence | SQLite Repository layer for Agents, Runs, Memory, API keys, Audit, Evaluation, and migrations |
-| Run History | Filtering, pagination, ordering, token usage, tool traces, and full message history |
+| Run History | Filtering, offset/cursor pagination, ordering, token usage, tool traces, and full message history |
 | Evaluation | Runtime metrics plus JSONL datasets, rule evaluators, tool trajectory checks, optional LLM judge, and regression reports |
 | Observability | Trace/request/run context, audit records, OpenTelemetry spans, and low-cardinality Prometheus metrics |
 | Multi-Tenant | User, Workspace, membership, resource isolation, quota, usage, and sliding-window rate limit |
@@ -295,6 +295,12 @@ Query Run History:
 
 ```bash
 curl "http://127.0.0.1:8000/api/v1/runs?agent=assistant&limit=10"
+```
+
+Continue with the opaque `next_cursor` when walking a busy history:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/runs?agent=assistant&limit=10&cursor=<next_cursor>"
 ```
 
 Read one execution trace:

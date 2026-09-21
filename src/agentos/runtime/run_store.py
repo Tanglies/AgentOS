@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from agentos.core.config import RunStoreSettings
 from agentos.core.context import get_user_id, get_workspace_id
 from agentos.core.exceptions import NotFoundError
+from agentos.core.pagination import PaginationCursor
 from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.runtime.repositories import (
@@ -204,6 +205,7 @@ class RunStore:
         agent: str | None = None,
         session_id: str | None = None,
         status: RunStatus | str | None = None,
+        cursor: PaginationCursor | None = None,
         workspace_id: int | None = None,
         order: str = "desc",
         limit: int = 50,
@@ -211,14 +213,16 @@ class RunStore:
     ) -> list[RunRecord]:
         """按条件查询历史运行，默认最新在前。
 
-        ``order="asc"`` 改为最早在前。返回的记录**不含消息列表**，
-        避免列表接口把上下文撑爆；需要完整轨迹请用 :meth:`get`。
+        ``order="asc"`` 改为最早在前。传入 ``cursor`` 时使用稳定的
+        keyset 分页；返回的记录**不含消息列表**，避免列表接口把上下文撑爆，
+        需要完整轨迹请用 :meth:`get`。
         """
         records = self._repo.list(
             workspace_id=self._scope(workspace_id),
             agent=agent,
             session_id=session_id,
             status=_as_status(status),
+            cursor=cursor,
             order=order,
             limit=limit,
             offset=offset,

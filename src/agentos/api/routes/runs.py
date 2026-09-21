@@ -18,7 +18,8 @@ from agentos.api.schemas import (
     RunResponse,
     RunSummary,
 )
-from agentos.core.exceptions import AgentOSError, NotFoundError
+from agentos.core.exceptions import AgentOSError, NotFoundError, ValidationError
+from agentos.core.pagination import PaginationCursor, decode_cursor, encode_cursor
 from agentos.runtime.api_keys import Permission
 from agentos.runtime.run_store import RunStatus
 from agentos.runtime.runtime import RunEvent
@@ -129,16 +130,31 @@ async def list_runs(
     session_id: str | None = Query(default=None, description="按会话过滤"),
     status: Annotated[RunStatus | None, Query(description="按状态过滤")] = None,
     sort: Annotated[
-        str, Query(pattern="^(created_at|-created_at)$", description="????")
+        str,
+        Query(pattern="^(created_at|-created_at)$", description="按创建时间排序"),
     ] = "created_at",
-    order: Annotated[str, Query(pattern="^(asc|desc)$", description="按时间排序")] = "desc",
+    order: Annotated[str, Query(pattern="^(asc|desc)$", description="排序方向")] = "desc",
+    cursor: str | None = Query(default=None, description="上一页返回的 next_cursor"),
     page: int | None = Query(default=None, ge=1, description="页码，从 1 开始"),
     page_size: int | None = Query(default=None, ge=1, le=500, description="每页数量"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> RunListResponse:
-    """按时间返回运行记录，同时兼容 page/page_size 与 limit/offset。"""
+    """按时间返回运行记录，兼容 offset 分页与稳定的 cursor 分页。"""
+    if cursor and (page is not None or page_size is not None or offset != 0):
+        raise ValidationError(
+            "cursor cannot be combined with page/page_size or non-zero offset",
+            details={"parameter": "cursor"},
+        )
     store = _require_run_store(runtime)
+    if sort == "-created_at":
+        order = "desc"
+    position = decode_cursor(cursor) if cursor else None
+    if position is not None and position.order != order:
+        raise ValidationError(
+            "cursor order does not match the requested order",
+            details={"parameter": "cursor"},
+        )
     if page is not None or page_size is not None:
         resolved_page = page or 1
         resolved_page_size = page_size or limit
@@ -147,16 +163,25 @@ async def list_runs(
         resolved_page_size = limit
         resolved_offset = offset
         resolved_page = offset // limit + 1
-    if sort == "-created_at":
-        order = "desc"
+    if position is not None:
+        resolved_page = 1
+        resolved_offset = 0
     records = store.list(  # type: ignore[attr-defined]
         agent=agent,
         session_id=session_id,
         status=status,
+        cursor=position,
         order=order,
-        limit=resolved_page_size,
+        limit=resolved_page_size + 1,
         offset=resolved_offset,
     )
+    next_cursor = None
+    if len(records) > resolved_page_size:
+        last = records[resolved_page_size - 1]
+        next_cursor = encode_cursor(
+            PaginationCursor(created_at=last.created_at, item_id=last.run_id, order=order)
+        )
+        records = records[:resolved_page_size]
     return RunListResponse(
         items=[RunSummary.from_record(record) for record in records],
         total=store.count(agent=agent, session_id=session_id, status=status),  # type: ignore[attr-defined]
@@ -164,6 +189,7 @@ async def list_runs(
         offset=resolved_offset,
         page=resolved_page,
         page_size=resolved_page_size,
+        next_cursor=next_cursor,
     )
 
 

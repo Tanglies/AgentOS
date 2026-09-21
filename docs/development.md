@@ -96,6 +96,7 @@ docs/             # 架构、配置与开发文档
 | `tests/test_observability.py` / `tests/test_audit.py` | trace 上下文、审计记录与查询 |
 | `tests/test_agent_repository.py` / `tests/test_agent_api.py` | Agent 结构化持久化、生命周期 API、权限与数据库恢复 |
 | `tests/test_run_query_api.py` | Run 过滤、双分页、token_usage 与权限 |
+| `tests/test_pagination.py` | keyset cursor 编解码、并发写入稳定性与参数校验 |
 | `tests/test_dashboard_api.py` | Overview、工具统计、错误列表、Dashboard 权限 |
 | `tests/test_evaluation_api.py` | Evaluation 汇总、过滤、异常与权限 |
 | `tests/test_eval_dataset.py` / `test_eval_rules.py` / `test_eval_runner.py` | JSONL、规则评分、工具轨迹、并发 Runner |

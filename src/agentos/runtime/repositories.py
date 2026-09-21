@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agentos.core.pagination import PaginationCursor
 from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.database.models import AgentRecord
@@ -684,13 +685,14 @@ class RunRepository(Repository):
         agent: str | None = None,
         session_id: str | None = None,
         status: RunStatus | None = None,
+        cursor: PaginationCursor | None = None,
         since: datetime | None = None,
         workspace_id: int = DEFAULT_WORKSPACE_ID,
         order: str = "desc",
         limit: int = 50,
         offset: int = 0,
     ) -> list[RunRecord]:
-        """按 Workspace 和条件查询，默认最新在前。"""
+        """按 Workspace 和条件查询，默认最新在前；可传游标做稳定翻页。"""
         where, params = self._where(
             workspace_id=workspace_id,
             agent=agent,
@@ -699,9 +701,23 @@ class RunRepository(Repository):
             since=since,
         )
         direction = "ASC" if str(order).lower() == "asc" else "DESC"
+        if cursor is not None:
+            operator = ">" if direction == "ASC" else "<"
+            cursor_clause = (
+                f"(created_at {operator} ? OR "
+                f"(created_at = ? AND run_id {operator} ?))"
+            )
+            where = f"{where} AND {cursor_clause}" if where else f"WHERE {cursor_clause}"
+            params = (
+                *params,
+                cursor.created_at.isoformat(),
+                cursor.created_at.isoformat(),
+                cursor.item_id,
+            )
         sql = (
             "SELECT * FROM runs "
-            f"{where} ORDER BY created_at {direction}, rowid {direction} LIMIT ? OFFSET ?"
+            f"{where} ORDER BY created_at {direction}, run_id {direction} "
+            "LIMIT ? OFFSET ?"
         )
         rows = self._db.query(sql, (*params, limit, offset))
         return [self._decode(row) for row in rows]

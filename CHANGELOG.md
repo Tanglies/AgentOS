@@ -3,6 +3,31 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-09-21
+
+### 新增
+
+- Run History 新增稳定的 keyset cursor 分页，响应通过 `next_cursor` 返回下一页位置
+
+### 修改
+
+- `/api/v1/runs` 在保留 `page/page_size` 与 `limit/offset` 的同时，统一按创建时间和
+  `run_id` 排序，避免同一时间戳下的分页重复或遗漏
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 使用不透明的 URL-safe Base64 cursor 记录最后一条记录的 `created_at`、`run_id` 和排序方向；
+  Repository 用参数化 keyset 条件查询，不引入新依赖，也不改变旧客户端的响应结构
+- 新增 8 个 cursor/API 测试；全量测试增至 628 passed，`ruff check .` 通过
+
+### 下一步计划
+
+- 将 cursor 分页抽象推广到其他列表接口，并补充批量操作能力
+
 ## 未发布
 
 ### 新增

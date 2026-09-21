@@ -128,6 +128,7 @@ GET /api/v1/runs
 | `status` | `completed` / `failed` |
 | `page` / `page_size` | 页码分页 |
 | `limit` / `offset` | 旧分页参数，继续兼容 |
+| `cursor` | 上一页返回的 `next_cursor`，用于并发写入下稳定的 keyset 分页 |
 | `sort` | `created_at` / `-created_at` |
 | `order` | `asc` / `desc` |
 
@@ -144,6 +145,15 @@ GET /api/v1/runs
 ```
 
 原 `total_tokens` 字段继续返回，避免破坏旧客户端。
+
+首次请求可以继续使用 `page/page_size` 或 `limit/offset`；当响应中的
+`next_cursor` 非空时，将它原样传给下一页即可。cursor 不可与 `page`、
+`page_size` 或非零 `offset` 混用，翻页期间也必须保持相同的过滤条件和
+`order`。
+
+```http
+GET /api/v1/runs?limit=20&cursor=eyJjcmVhdGVkX2F0IjoiLi4uIn0
+```
 
 ## Dashboard 数据来源
 
