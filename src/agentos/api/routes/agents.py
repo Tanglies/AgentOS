@@ -13,9 +13,17 @@ from agentos.api.schemas import (
     ToolSummary,
     ToolUpdateRequest,
 )
+from agentos.core.exceptions import ValidationError
+from agentos.core.pagination import (
+    decode_keyset_cursor,
+    ensure_cursor_order,
+)
 from agentos.runtime.api_keys import Permission
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+#: Agent 列表始终按名称升序返回，cursor 也必须使用相同方向
+AGENT_ORDER = "asc"
 
 
 @router.get(
@@ -26,16 +34,33 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 )
 async def list_agents(
     service: AgentServiceDep,
-    page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
-    page_size: int = Query(default=20, ge=1, le=500, description="每页数量"),
+    page: int | None = Query(default=None, ge=1, description="页码，从 1 开始"),
+    page_size: int | None = Query(default=None, ge=1, le=500, description="每页数量"),
+    cursor: str | None = Query(default=None, description="上一页返回的 next_cursor"),
 ) -> AgentListResponse:
-    """按名称分页返回全部 Agent 及其持久化元数据。"""
-    records, total = service.list(page=page, page_size=page_size)
+    """按名称返回 Agent，兼容 page/page_size 与稳定的 cursor 分页。"""
+    if cursor and page is not None:
+        raise ValidationError(
+            "cursor cannot be combined with page",
+            details={"parameter": "cursor"},
+        )
+    resolved_page = 1 if cursor else (page or 1)
+    resolved_page_size = page_size or 20
+    position = decode_keyset_cursor(cursor) if cursor else None
+    if position is not None:
+        ensure_cursor_order(position.order, AGENT_ORDER)
+    records, total, next_cursor = service.list(
+        page=resolved_page,
+        page_size=resolved_page_size,
+        cursor=position,
+        order=AGENT_ORDER,
+    )
     return AgentListResponse(
         items=[AgentSummary.from_record(record) for record in records],
         total=total,
-        page=page,
-        page_size=page_size,
+        page=resolved_page,
+        page_size=resolved_page_size,
+        next_cursor=next_cursor,
     )
 
 

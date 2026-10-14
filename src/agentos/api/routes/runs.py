@@ -19,7 +19,12 @@ from agentos.api.schemas import (
     RunSummary,
 )
 from agentos.core.exceptions import AgentOSError, NotFoundError, ValidationError
-from agentos.core.pagination import PaginationCursor, decode_cursor, encode_cursor
+from agentos.core.pagination import (
+    PaginationCursor,
+    decode_cursor,
+    encode_cursor,
+    ensure_cursor_order,
+)
 from agentos.runtime.api_keys import Permission
 from agentos.runtime.run_store import RunStatus
 from agentos.runtime.runtime import RunEvent
@@ -150,11 +155,8 @@ async def list_runs(
     if sort == "-created_at":
         order = "desc"
     position = decode_cursor(cursor) if cursor else None
-    if position is not None and position.order != order:
-        raise ValidationError(
-            "cursor order does not match the requested order",
-            details={"parameter": "cursor"},
-        )
+    if position is not None:
+        ensure_cursor_order(position.order, order)
     if page is not None or page_size is not None:
         resolved_page = page or 1
         resolved_page_size = page_size or limit

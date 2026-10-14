@@ -70,9 +70,22 @@ GET /api/v1/agents?page=1&page_size=20
 响应保留 `items` / `total`，并增加：
 
 - `page`：当前页码；
-- `page_size`：每页数量。
+- `page_size`：每页数量；
+- `next_cursor`：下一页的不透明 keyset 游标，`null` 表示已到末页。
 
-默认按名称稳定排序。
+默认按名称稳定排序。翻页有两种等价方式：
+
+1. **页码分页**：继续使用 `page` / `page_size`，行为与旧版本一致；
+2. **keyset 分页**：把上一页响应的 `next_cursor` 原样传回，可同时指定
+   `page_size` 控制每页数量；翻页期间有 Agent 被创建或删除也不会重复或跳过记录。
+
+```http
+GET /api/v1/agents?page_size=20&cursor=eyJ2IjoyLCJrZXkiOiJhbHBoYSJ9
+```
+
+`cursor` 不能与 `page` 同时使用，也不能跨列表或跨接口复用：Agent 列表的游标
+记录的是名称位置，Run History 的游标记录的是创建时间，混用会返回
+`422 validation_error`。
 
 ### 查询详情
 

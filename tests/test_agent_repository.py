@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agentos.core.exceptions import NotFoundError
+from agentos.core.pagination import KeysetCursor
 from agentos.database import Database
 from agentos.runtime.agent import Agent
 from agentos.runtime.repositories import AGENTS_SCHEMA, AgentRepository
@@ -102,6 +103,37 @@ def test_list_records_supports_pagination(tmp_path: Path) -> None:
 
     assert [record.name for record in records] == ["m", "z"]
     assert repo.count() == 3
+
+
+def test_list_records_resumes_from_a_keyset_cursor(tmp_path: Path) -> None:
+    repo = _repository(tmp_path / "agents.db")
+    for name in ("alpha", "bravo", "charlie"):
+        repo.add(Agent(name=name), created_at=NOW)
+
+    first = repo.list_records(limit=2)
+    assert [record.name for record in first] == ["alpha", "bravo"]
+
+    # A cursor restarts the keyset walk, so an offset must not shift it again.
+    second = repo.list_records(
+        limit=2,
+        offset=5,
+        cursor=KeysetCursor(key="bravo", item_id="bravo"),
+    )
+
+    assert [record.name for record in second] == ["charlie"]
+
+
+def test_list_records_supports_descending_cursor_order(tmp_path: Path) -> None:
+    repo = _repository(tmp_path / "agents.db")
+    for name in ("alpha", "bravo", "charlie"):
+        repo.add(Agent(name=name), created_at=NOW)
+
+    records = repo.list_records(
+        cursor=KeysetCursor(key="bravo", item_id="bravo", order="desc"),
+        order="desc",
+    )
+
+    assert [record.name for record in records] == ["alpha"]
 
 
 def test_remove_is_idempotent_for_missing_agent(tmp_path: Path) -> None:

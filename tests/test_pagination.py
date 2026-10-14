@@ -10,7 +10,14 @@ from fastapi.testclient import TestClient
 from agentos.api.app import create_app
 from agentos.core.config import Settings
 from agentos.core.exceptions import ValidationError
-from agentos.core.pagination import PaginationCursor, decode_cursor, encode_cursor
+from agentos.core.pagination import (
+    KeysetCursor,
+    PaginationCursor,
+    decode_cursor,
+    decode_keyset_cursor,
+    encode_cursor,
+    encode_keyset_cursor,
+)
 
 
 def _settings(tmp_path) -> Settings:
@@ -94,6 +101,112 @@ def test_cursor_order_must_match_request(tmp_path) -> None:
             "/api/v1/runs",
             params={"limit": 1, "order": "desc", "cursor": cursor},
         )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_keyset_cursor_round_trip() -> None:
+    source = KeysetCursor(key="researcher", item_id="researcher", order="asc")
+
+    assert decode_keyset_cursor(encode_keyset_cursor(source)) == source
+
+
+def test_keyset_and_time_cursors_are_not_interchangeable() -> None:
+    time_token = encode_cursor(
+        PaginationCursor(created_at=datetime(2026, 9, 21, tzinfo=UTC), item_id="run_1")
+    )
+    keyset_token = encode_keyset_cursor(KeysetCursor(key="alpha", item_id="alpha"))
+
+    with pytest.raises(ValidationError):
+        decode_keyset_cursor(time_token)
+    with pytest.raises(ValidationError):
+        decode_cursor(keyset_token)
+
+
+@pytest.mark.parametrize("token", ["", "%%%", "e30"])
+def test_invalid_keyset_cursor_is_rejected(token: str) -> None:
+    with pytest.raises(ValidationError):
+        decode_keyset_cursor(token)
+
+
+def test_agent_cursor_pagination_walks_the_name_order(tmp_path) -> None:
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for name in ("zeta", "alpha", "middle", "bravo"):
+            assert client.post("/api/v1/agents", json={"name": name}).status_code == 201
+
+        first = client.get("/api/v1/agents", params={"page_size": 2}).json()
+        assert [item["name"] for item in first["items"]] == ["alpha", "assistant"]
+        assert first["total"] == 5
+        assert first["next_cursor"]
+
+        second = client.get(
+            "/api/v1/agents",
+            params={"page_size": 2, "cursor": first["next_cursor"]},
+        ).json()
+        assert [item["name"] for item in second["items"]] == ["bravo", "middle"]
+        assert second["total"] == 5
+        assert second["next_cursor"]
+
+        third = client.get(
+            "/api/v1/agents",
+            params={"page_size": 2, "cursor": second["next_cursor"]},
+        ).json()
+
+    assert [item["name"] for item in third["items"]] == ["zeta"]
+    assert third["next_cursor"] is None
+
+
+def test_agent_cursor_is_stable_when_a_previous_row_is_deleted(tmp_path) -> None:
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for name in ("alpha", "bravo", "charlie", "delta"):
+            client.post("/api/v1/agents", json={"name": name})
+        first = client.get("/api/v1/agents", params={"page_size": 2}).json()
+        assert [item["name"] for item in first["items"]] == ["alpha", "assistant"]
+
+        assert client.delete("/api/v1/agents/alpha").status_code == 204
+
+        second = client.get(
+            "/api/v1/agents",
+            params={"page_size": 2, "cursor": first["next_cursor"]},
+        ).json()
+
+    assert [item["name"] for item in second["items"]] == ["bravo", "charlie"]
+
+
+def test_agent_cursor_cannot_be_combined_with_page(tmp_path) -> None:
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for name in ("alpha", "bravo"):
+            client.post("/api/v1/agents", json={"name": name})
+        cursor = client.get("/api/v1/agents", params={"page_size": 1}).json()[
+            "next_cursor"
+        ]
+        assert cursor
+        response = client.get("/api/v1/agents", params={"page": 2, "cursor": cursor})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_agent_list_rejects_a_time_based_cursor(tmp_path) -> None:
+    token = encode_cursor(
+        PaginationCursor(created_at=datetime(2026, 9, 21, tzinfo=UTC), item_id="run_1")
+    )
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.get("/api/v1/agents", params={"cursor": token})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_agent_cursor_must_match_the_list_order(tmp_path) -> None:
+    token = encode_keyset_cursor(
+        KeysetCursor(key="alpha", item_id="alpha", order="desc")
+    )
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.get("/api/v1/agents", params={"cursor": token})
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"

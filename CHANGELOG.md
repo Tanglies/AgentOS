@@ -3,6 +3,38 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-10-14
+
+### 新增
+
+- Agent 列表接口 `GET /api/v1/agents` 支持稳定的 keyset cursor 分页，响应新增 `next_cursor`
+- 分页模块新增 `KeysetCursor` 与 `encode_keyset_cursor` / `decode_keyset_cursor`，
+  可按字符串排序键（如 Agent 名称）记录游标位置
+
+### 修改
+
+- `AgentRepository.list_records` 与 `AgentService.list` 支持 `cursor` / `order` 参数，
+  每页多取一行判断是否还有下一页，避免末尾出现空页
+- `GET /api/v1/agents` 的 `page` / `page_size` 改为可选并保持原有默认值，页码分页行为不变
+- `/api/v1/runs` 复用统一的 `ensure_cursor_order` 校验，删除重复实现
+- `docs/platform.md`、`README.md` 补充 Agent 列表分页用法与 cursor 复用限制
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- Agent 以唯一 `name` 排序，因此游标记录名称位置而不是创建时间；两种游标都带版本标记，
+  跨接口或跨列表复用会返回 `422 validation_error`，不会静默给出错误结果
+- `cursor` 与 `page` 互斥，但可与 `page_size` 组合（游标模式下 `page` 恒为 1）；
+  翻页期间新增或删除 Agent 不会重复或跳过记录
+- 新增 12 个测试（分页 API 10 个 + Repository 2 个），测试总数 628 → 640，`ruff check .` 通过
+
+### 下一步计划
+
+- 将 cursor 分页推广到 Memory / Audit / API Key 列表接口，并补充批量操作能力
+
 ## 2026-09-21
 
 ### 新增

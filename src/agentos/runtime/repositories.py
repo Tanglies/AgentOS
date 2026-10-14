@@ -17,11 +17,11 @@ import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from agentos.core.pagination import PaginationCursor
+from agentos.core.pagination import KeysetCursor, PaginationCursor
 from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.database.models import AgentRecord
@@ -592,13 +592,30 @@ class AgentRepository(Repository):
         workspace_id: int = DEFAULT_WORKSPACE_ID,
         limit: int | None = None,
         offset: int = 0,
+        cursor: KeysetCursor | None = None,
+        order: Literal["asc", "desc"] = "asc",
     ) -> list[AgentRecord]:
-        sql = "SELECT * FROM agents WHERE workspace_id = ? ORDER BY name"
-        params: tuple[Any, ...] = (workspace_id,)
+        """List Agent records by name, optionally resuming after a cursor.
+
+        Agents sort by their unique ``name`` instead of ``created_at``, so the
+        keyset predicate compares names directly.  A cursor always starts from
+        the beginning of the keyset, which is why ``offset`` is ignored then.
+        """
+        comparator = "<" if order == "desc" else ">"
+        direction = "DESC" if order == "desc" else "ASC"
+        clauses = ["workspace_id = ?"]
+        params: list[Any] = [workspace_id]
+        if cursor is not None:
+            clauses.append(f"name {comparator} ?")
+            params.append(cursor.key)
+        sql = (
+            f"SELECT * FROM agents WHERE {' AND '.join(clauses)}"
+            f" ORDER BY name {direction}"
+        )
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
-            params = (workspace_id, limit, offset)
-        rows = self._db.query(sql, params)
+            params.extend((limit, 0 if cursor is not None else max(offset, 0)))
+        rows = self._db.query(sql, tuple(params))
         return [self._to_record(row) for row in rows]
 
     def list(self, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> list[Agent]:

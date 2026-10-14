@@ -303,6 +303,13 @@ Continue with the opaque `next_cursor` when walking a busy history:
 curl "http://127.0.0.1:8000/api/v1/runs?agent=assistant&limit=10&cursor=<next_cursor>"
 ```
 
+The Agent list supports the same opaque cursor, keyed on the Agent name:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/agents?page_size=20"
+curl "http://127.0.0.1:8000/api/v1/agents?page_size=20&cursor=<next_cursor>"
+```
+
 Read one execution trace:
 
 ```bash
