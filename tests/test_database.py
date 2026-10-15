@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agentos.core.database import Database
+from agentos.core.pagination import PaginationCursor
 from agentos.runtime.agent import Agent
 from agentos.runtime.repositories import (
     AGENTS_SCHEMA,
@@ -277,6 +278,23 @@ def test_memory_repository_list_is_newest_first(memories: MemoryRepository) -> N
     memories.add(content="第二", session_id=None, created_at=NOW + timedelta(seconds=1))
 
     assert [r.content for r in memories.list()] == ["第二", "第一"]
+
+
+def test_memory_repository_list_resumes_after_cursor(
+    memories: MemoryRepository,
+) -> None:
+    first = memories.add(content="第一", session_id=None, created_at=NOW)
+    second = memories.add(content="第二", session_id=None, created_at=NOW)
+    memories.add(content="第三", session_id=None, created_at=NOW + timedelta(seconds=1))
+
+    records = memories.list(
+        cursor=PaginationCursor(
+            created_at=second.created_at,
+            item_id=str(second.id),
+        )
+    )
+
+    assert [record.id for record in records] == [first.id]
 
 
 def test_memory_repository_search_scores_longer_terms_higher(

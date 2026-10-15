@@ -991,10 +991,20 @@ class MemoryRepository(Repository):
         workspace_id: int = DEFAULT_WORKSPACE_ID,
         user_id: int | None = None,
         scope: MemoryScope | None = None,
+        cursor: PaginationCursor | None = None,
     ) -> list[MemoryRecord]:
+        """List visible memories newest first, optionally after a cursor."""
         visibility, params = self._visibility_clause(
             workspace_id=workspace_id, user_id=user_id, scope=scope
         )
+        if cursor is not None:
+            visibility += " AND (created_at < ? OR (created_at = ? AND id < ?))"
+            params = (
+                *params,
+                cursor.created_at.isoformat(),
+                cursor.created_at.isoformat(),
+                int(cursor.item_id),
+            )
         rows = self._db.query(
             f"SELECT * FROM memories WHERE {visibility} "
             "ORDER BY created_at DESC, id DESC LIMIT ?",

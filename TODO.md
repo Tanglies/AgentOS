@@ -47,7 +47,8 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [x] Agent 管理 API：分页、过滤条件、完整详情
   - [x] Agent 列表：`page/page_size` 与按名称的 keyset `cursor` 分页
   - [x] Run History：`page/page_size`、旧 `limit/offset` 与稳定 keyset `cursor` 分页
-  - [ ] 将 cursor 分页推广到 Memory / Audit / API Key 列表
+  - [x] Memory 列表：按创建时间和 ID 的稳定 keyset `cursor` 分页
+  - [ ] 将 cursor 分页推广到 Audit / API Key 列表
   - [ ] 批量操作（批量删除 / 批量更新）
 - [x] 数据模型与迁移机制
   - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）

@@ -93,7 +93,7 @@ The dependency direction remains `api -> runtime -> llm`; `database` and `evalua
 | Tool System | JSON-schema based declarations, argument validation, execution timeout, parallel-safe execution, error feedback |
 | Built-in Tools | Time, calculation, sandboxed filesystem, safe shell executor, web fetch/search, memory, planning, delegation |
 | Tool Policy | Workspace and Agent scoped visibility, route permissions, and Runtime execution-time permission checks |
-| Memory | LRU session memory plus SQLite-backed long-term memory with workspace/user scope and context budgets |
+| Memory | LRU session memory plus SQLite-backed long-term memory with workspace/user scope, context budgets, and cursor pagination |
 | Planning | Task decomposition, plan state, step updates, and system-prompt injection during each iteration |
 | Multi-Agent | `delegate_to_agent` with depth limits and stateless child-Agent execution |
 | Persistence | SQLite Repository layer for Agents, Runs, Memory, API keys, Audit, Evaluation, and migrations |
@@ -308,6 +308,13 @@ The Agent list supports the same opaque cursor, keyed on the Agent name:
 ```bash
 curl "http://127.0.0.1:8000/api/v1/agents?page_size=20"
 curl "http://127.0.0.1:8000/api/v1/agents?page_size=20&cursor=<next_cursor>"
+```
+
+Long-term Memory uses a creation-time cursor with the record ID as a tie-breaker:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/memories?limit=50"
+curl "http://127.0.0.1:8000/api/v1/memories?limit=50&cursor=<next_cursor>"
 ```
 
 Read one execution trace:

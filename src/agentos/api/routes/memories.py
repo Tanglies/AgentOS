@@ -10,11 +10,18 @@ from fastapi import APIRouter, Query, Response, status
 
 from agentos.api.deps import RuntimeDep, require
 from agentos.api.schemas import MemoryCreateRequest, MemoryListResponse, MemorySummary
-from agentos.core.exceptions import NotFoundError
+from agentos.core.exceptions import NotFoundError, ValidationError
+from agentos.core.pagination import (
+    PaginationCursor,
+    decode_cursor,
+    encode_cursor,
+    ensure_cursor_order,
+)
 from agentos.runtime.api_keys import Permission
 from agentos.runtime.long_term_memory import LongTermMemory
 
 router = APIRouter(prefix="/memories", tags=["memories"])
+_MAX_SQLITE_ROW_ID = 2**63 - 1
 
 
 def _require_memory(runtime: RuntimeDep) -> LongTermMemory:
@@ -35,11 +42,47 @@ def _require_memory(runtime: RuntimeDep) -> LongTermMemory:
     dependencies=[require(Permission.MEMORY_READ)],
 )
 async def list_memories(
-    runtime: RuntimeDep, limit: int = Query(default=50, ge=1, le=500)
+    runtime: RuntimeDep,
+    limit: int = Query(default=50, ge=1, le=500),
+    cursor: str | None = Query(default=None, description="上一页返回的 next_cursor"),
 ) -> MemoryListResponse:
     memory = _require_memory(runtime)
-    items = [MemorySummary.from_record(record) for record in memory.list(limit=limit)]
-    return MemoryListResponse(items=items, total=memory.count())
+    position = decode_cursor(cursor) if cursor else None
+    if position is not None:
+        ensure_cursor_order(position.order, "desc")
+        try:
+            memory_id = int(position.item_id)
+        except ValueError as exc:
+            raise ValidationError(
+                "invalid pagination cursor", details={"parameter": "cursor"}
+            ) from exc
+        if not 1 <= memory_id <= _MAX_SQLITE_ROW_ID:
+            raise ValidationError(
+                "invalid pagination cursor", details={"parameter": "cursor"}
+            )
+        position = PaginationCursor(
+            created_at=position.created_at,
+            item_id=str(memory_id),
+            order="desc",
+        )
+
+    records = memory.list(limit=limit + 1, cursor=position)
+    next_cursor = None
+    if len(records) > limit:
+        last = records[limit - 1]
+        next_cursor = encode_cursor(
+            PaginationCursor(
+                created_at=last.created_at,
+                item_id=str(last.id),
+                order="desc",
+            )
+        )
+    items = [MemorySummary.from_record(record) for record in records[:limit]]
+    return MemoryListResponse(
+        items=items,
+        total=memory.count(),
+        next_cursor=next_cursor,
+    )
 
 
 @router.post(

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from agentos.core.config import MemorySettings, Settings
+from agentos.core.pagination import PaginationCursor, encode_cursor
 from agentos.llm import EchoLLMClient
 from agentos.llm.base import ToolCall
 from agentos.runtime import Agent, AgentRuntime, LongTermMemory, ToolRegistry
@@ -272,6 +274,76 @@ def test_memory_crud_over_api(client: TestClient) -> None:
 
     assert client.delete(f"/api/v1/memories/{memory_id}").status_code == 204
     assert client.get("/api/v1/memories").json()["total"] == 0
+
+
+def test_memory_api_supports_cursor_pagination(client: TestClient) -> None:
+    for content in ("第一", "第二", "第三"):
+        response = client.post("/api/v1/memories", json={"content": content})
+        assert response.status_code == 201
+
+    first_page = client.get("/api/v1/memories", params={"limit": 2}).json()
+    second_page = client.get(
+        "/api/v1/memories",
+        params={"limit": 2, "cursor": first_page["next_cursor"]},
+    ).json()
+
+    assert [item["content"] for item in first_page["items"]] == ["第三", "第二"]
+    assert first_page["total"] == 3
+    assert first_page["next_cursor"]
+    assert [item["content"] for item in second_page["items"]] == ["第一"]
+    assert second_page["total"] == 3
+    assert second_page["next_cursor"] is None
+
+
+def test_memory_cursor_remains_stable_when_previous_page_item_is_deleted(
+    client: TestClient,
+) -> None:
+    ids = [
+        client.post("/api/v1/memories", json={"content": content}).json()["id"]
+        for content in ("第一", "第二", "第三")
+    ]
+    first_page = client.get("/api/v1/memories", params={"limit": 2}).json()
+
+    assert client.delete(f"/api/v1/memories/{ids[2]}").status_code == 204
+    second_page = client.get(
+        "/api/v1/memories",
+        params={"limit": 2, "cursor": first_page["next_cursor"]},
+    ).json()
+
+    assert [item["content"] for item in second_page["items"]] == ["第一"]
+    assert second_page["total"] == 2
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "not-a-cursor",
+        encode_cursor(
+            PaginationCursor(
+                created_at=datetime.now(UTC),
+                item_id="not-an-integer",
+            )
+        ),
+        encode_cursor(
+            PaginationCursor(
+                created_at=datetime.now(UTC),
+                item_id="1",
+                order="asc",
+            )
+        ),
+        encode_cursor(
+            PaginationCursor(
+                created_at=datetime.now(UTC),
+                item_id=str(2**63),
+            )
+        ),
+    ],
+)
+def test_memory_api_rejects_invalid_cursor(client: TestClient, cursor: str) -> None:
+    response = client.get("/api/v1/memories", params={"cursor": cursor})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_delete_unknown_memory_returns_404(client: TestClient) -> None:

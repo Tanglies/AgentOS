@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from agentos.core.config import MemorySettings
 from agentos.core.context import get_user_id, get_workspace_id
+from agentos.core.pagination import PaginationCursor
 from agentos.core.tenancy import DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.runtime.repositories import (
@@ -247,6 +248,7 @@ class LongTermMemory:
         scope: MemoryScope | str | None = None,
         workspace_id: int | None = None,
         user_id: int | None = None,
+        cursor: PaginationCursor | None = None,
     ) -> list[MemoryRecord]:
         """按写入时间倒序返回当前 Workspace 可见记忆。"""
         resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
@@ -255,6 +257,7 @@ class LongTermMemory:
             workspace_id=resolved_workspace,
             user_id=resolved_user,
             scope=MemoryScope(scope) if scope is not None else None,
+            cursor=cursor,
         )
 
     def forget(

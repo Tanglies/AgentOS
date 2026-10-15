@@ -280,6 +280,7 @@ class MemoryListResponse(BaseModel):
 
     items: list[MemorySummary]
     total: int
+    next_cursor: str | None = None
 
 
 class SessionSummary(BaseModel):

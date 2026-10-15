@@ -3,6 +3,32 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-10-15
+
+### 新增
+
+- 长期 Memory 列表接口 `GET /api/v1/memories` 支持稳定的 keyset cursor 分页，
+  响应新增 `next_cursor`
+
+### 修改
+
+- `MemoryRepository.list` 与 `LongTermMemory.list` 支持从时间戳 + 记录 ID 游标继续查询
+- `README.md` 与 `TODO.md` 同步 Memory 分页用法和 API 完善进度
+
+### 修复
+
+- Memory 翻页期间删除上一页记录时，后续页面不再依赖偏移量，因此不会跳过剩余记录
+
+### 技术记录
+
+- 复用现有 URL-safe `PaginationCursor`，按 `created_at DESC, id DESC` 查询；每页多取一行，
+  仅在确有下一页时返回游标，并拒绝非整数 ID、错误排序方向和损坏的 cursor
+- 新增 7 个分页与边界测试，测试总数 640 → 647；`ruff check .` 通过
+
+### 下一步计划
+
+- 将 cursor 分页推广到 Audit / API Key 列表，再评估批量操作的最小安全边界
+
 ## 2026-10-14
 
 ### 新增
