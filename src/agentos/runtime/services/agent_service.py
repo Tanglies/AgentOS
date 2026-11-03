@@ -8,7 +8,7 @@ adds persisted metadata when the backing registry is SQLite-backed.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from agentos.core.context import get_workspace_id
 from agentos.core.exceptions import NotFoundError
@@ -19,6 +19,7 @@ from agentos.runtime.agent import Agent
 from agentos.runtime.audit import (
     ACTION_AGENT_REGISTER,
     ACTION_AGENT_UNREGISTER,
+    ACTION_AGENT_UPDATE,
     AuditLog,
 )
 from agentos.runtime.registry import AgentRegistry
@@ -38,7 +39,7 @@ def _next_cursor(
 
 
 class AgentService:
-    """Application service for Agent create, list, detail, and delete operations."""
+    """Application service for Agent lifecycle operations."""
 
     def __init__(
         self,
@@ -87,6 +88,71 @@ class AgentService:
         scope = self._workspace_id(workspace_id)
         agent = self._registry.get(name, workspace_id=scope)
         return self._record(agent, workspace_id=scope)
+
+    def update(
+        self,
+        name: str,
+        changes: dict[str, Any],
+        *,
+        workspace_id: int | None = None,
+    ) -> AgentRecord:
+        """Partially update one existing Agent and return its new record."""
+        records, _ = self.update_many(
+            [(name, changes)],
+            workspace_id=workspace_id,
+        )
+        if not records:
+            scope = self._workspace_id(workspace_id)
+            raise NotFoundError(
+                f"agent not found: {name}",
+                details={"agent": name, "workspace_id": scope},
+            )
+        return records[0]
+
+    def update_many(
+        self,
+        updates: list[tuple[str, dict[str, Any]]],
+        *,
+        workspace_id: int | None = None,
+    ) -> tuple[list[AgentRecord], list[str]]:
+        """Update visible Agents and report names that did not exist."""
+        scope = self._workspace_id(workspace_id)
+        requested_names = list(dict.fromkeys(name for name, _ in updates))
+        patches = list(dict(updates).items())
+        repository = self.repository
+        if repository is not None and hasattr(repository, "update_many"):
+            records = repository.update_many(
+                patches,
+                updated_at=datetime.now(UTC),
+                workspace_id=scope,
+            )
+        else:
+            records = []
+            for name, patch in patches:
+                try:
+                    current = self._registry.get(name, workspace_id=scope)
+                except NotFoundError:
+                    continue
+                merged = Agent(**{**current.model_dump(), **patch})
+                saved = self._registry.register(
+                    merged,
+                    overwrite=True,
+                    workspace_id=scope,
+                )
+                records.append(self._record(saved, workspace_id=scope))
+
+        if self._audit is not None:
+            for record in records:
+                self._audit.record(
+                    ACTION_AGENT_UPDATE,
+                    target=record.name,
+                    detail=record.description,
+                )
+        updated_names = {record.name for record in records}
+        missing_names = [
+            name for name in requested_names if name not in updated_names
+        ]
+        return records, missing_names
 
     def list(
         self,
@@ -145,6 +211,25 @@ class AgentService:
         self._registry.delete(name, workspace_id=scope)
         if self._audit is not None:
             self._audit.record(ACTION_AGENT_UNREGISTER, target=name)
+
+    def delete_many(
+        self, names: list[str], *, workspace_id: int | None = None
+    ) -> list[str]:
+        """Delete visible Agents and return the names that were removed."""
+        scope = self._workspace_id(workspace_id)
+        unique_names = list(dict.fromkeys(names))
+        repository = self.repository
+        if repository is not None and hasattr(repository, "remove_many"):
+            removed = repository.remove_many(unique_names, workspace_id=scope)
+        else:
+            visible = {agent.name for agent in self._registry.list(workspace_id=scope)}
+            removed = [name for name in unique_names if name in visible]
+            for name in removed:
+                self._registry.delete(name, workspace_id=scope)
+        if self._audit is not None:
+            for name in removed:
+                self._audit.record(ACTION_AGENT_UNREGISTER, target=name)
+        return removed
 
     def _record(self, agent: Agent, *, workspace_id: int) -> AgentRecord:
         repository = self.repository

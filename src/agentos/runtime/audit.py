@@ -35,6 +35,7 @@ from agentos.core.context import (
     get_user_id,
     get_workspace_id,
 )
+from agentos.core.pagination import PaginationCursor
 from agentos.core.tenancy import DEFAULT_WORKSPACE_ID
 from agentos.database.connection import Database
 from agentos.runtime.repositories import (
@@ -47,6 +48,7 @@ from agentos.runtime.repositories import (
 ACTION_AGENT_RUN = "agent.run"
 ACTION_TOOL_EXECUTE = "tool.execute"
 ACTION_AGENT_REGISTER = "agent.register"
+ACTION_AGENT_UPDATE = "agent.update"
 ACTION_AGENT_UNREGISTER = "agent.unregister"
 ACTION_WORKSPACE_CREATE = "workspace.create"
 ACTION_WORKSPACE_UPDATE = "workspace.update"
@@ -61,6 +63,7 @@ ACTION_RATE_LIMIT_EXCEEDED = "rate_limit.exceeded"
 __all__ = [
     "ACTION_AGENT_REGISTER",
     "ACTION_AGENT_RUN",
+    "ACTION_AGENT_UPDATE",
     "ACTION_AGENT_UNREGISTER",
     "ACTION_QUOTA_UPDATE",
     "ACTION_RATE_LIMIT_EXCEEDED",
@@ -133,8 +136,9 @@ class AuditLog:
         order: str = "desc",
         limit: int = 50,
         offset: int = 0,
+        cursor: PaginationCursor | None = None,
     ) -> list[AuditEntry]:
-        """按条件查询审计记录，默认最新在前。"""
+        """按条件查询审计记录，默认最新在前；可传游标稳定翻页。"""
         return self._repo.list(
             workspace_id=workspace_id or get_workspace_id() or DEFAULT_WORKSPACE_ID,
             action=action,
@@ -144,6 +148,7 @@ class AuditLog:
             order=order,
             limit=limit,
             offset=offset,
+            cursor=cursor,
         )
 
     def count(

@@ -9,19 +9,28 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Response, status
 
 from agentos.api.deps import RuntimeDep, require
-from agentos.api.schemas import MemoryCreateRequest, MemoryListResponse, MemorySummary
-from agentos.core.exceptions import NotFoundError, ValidationError
+from agentos.api.schemas import (
+    MemoryBatchDeleteRequest,
+    MemoryBatchDeleteResponse,
+    MemoryBatchUpdateRequest,
+    MemoryBatchUpdateResponse,
+    MemoryCreateRequest,
+    MemoryListResponse,
+    MemorySummary,
+    MemoryUpdateRequest,
+)
+from agentos.core.exceptions import NotFoundError
 from agentos.core.pagination import (
     PaginationCursor,
     decode_cursor,
     encode_cursor,
     ensure_cursor_order,
+    ensure_cursor_row_id,
 )
 from agentos.runtime.api_keys import Permission
 from agentos.runtime.long_term_memory import LongTermMemory
 
 router = APIRouter(prefix="/memories", tags=["memories"])
-_MAX_SQLITE_ROW_ID = 2**63 - 1
 
 
 def _require_memory(runtime: RuntimeDep) -> LongTermMemory:
@@ -50,19 +59,9 @@ async def list_memories(
     position = decode_cursor(cursor) if cursor else None
     if position is not None:
         ensure_cursor_order(position.order, "desc")
-        try:
-            memory_id = int(position.item_id)
-        except ValueError as exc:
-            raise ValidationError(
-                "invalid pagination cursor", details={"parameter": "cursor"}
-            ) from exc
-        if not 1 <= memory_id <= _MAX_SQLITE_ROW_ID:
-            raise ValidationError(
-                "invalid pagination cursor", details={"parameter": "cursor"}
-            )
         position = PaginationCursor(
             created_at=position.created_at,
-            item_id=str(memory_id),
+            item_id=str(ensure_cursor_row_id(position.item_id)),
             order="desc",
         )
 
@@ -83,6 +82,69 @@ async def list_memories(
         total=memory.count(),
         next_cursor=next_cursor,
     )
+
+
+@router.post(
+    "/batch-delete",
+    response_model=MemoryBatchDeleteResponse,
+    summary="批量删除长期记忆",
+    dependencies=[require(Permission.MEMORY_WRITE)],
+)
+async def batch_delete_memories(
+    payload: MemoryBatchDeleteRequest, runtime: RuntimeDep
+) -> MemoryBatchDeleteResponse:
+    """删除当前租户可见的指定记忆，并报告未找到的 id。"""
+    memory = _require_memory(runtime)
+    removed_ids = memory.forget_many(payload.ids)
+    removed_set = set(removed_ids)
+    return MemoryBatchDeleteResponse(
+        requested=len(payload.ids),
+        deleted=len(removed_ids),
+        missing_ids=[memory_id for memory_id in payload.ids if memory_id not in removed_set],
+    )
+
+
+@router.patch(
+    "/batch",
+    response_model=MemoryBatchUpdateResponse,
+    summary="批量更新长期记忆",
+    dependencies=[require(Permission.MEMORY_WRITE)],
+)
+async def batch_update_memories(
+    payload: MemoryBatchUpdateRequest, runtime: RuntimeDep
+) -> MemoryBatchUpdateResponse:
+    """Update visible memories and report ids that were not found."""
+    memory = _require_memory(runtime)
+    updates = [(item.id, item.to_patch()) for item in payload.updates]
+    records = memory.update_many(updates)
+    updated_ids = {record.id for record in records}
+    return MemoryBatchUpdateResponse(
+        requested=len(payload.updates),
+        updated=len(records),
+        items=[MemorySummary.from_record(record) for record in records],
+        missing_ids=[
+            item.id for item in payload.updates if item.id not in updated_ids
+        ],
+    )
+
+
+@router.patch(
+    "/{memory_id}",
+    response_model=MemorySummary,
+    summary="部分更新长期记忆",
+    dependencies=[require(Permission.MEMORY_WRITE)],
+)
+async def update_memory(
+    memory_id: int, payload: MemoryUpdateRequest, runtime: RuntimeDep
+) -> MemorySummary:
+    """Update one visible memory while preserving omitted fields."""
+    memory = _require_memory(runtime)
+    records = memory.update_many([(memory_id, payload.to_patch())])
+    if not records:
+        raise NotFoundError(
+            f"memory not found: {memory_id}", details={"memory_id": memory_id}
+        )
+    return MemorySummary.from_record(records[0])
 
 
 @router.post(

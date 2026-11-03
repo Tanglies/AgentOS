@@ -98,6 +98,8 @@ The dependency direction remains `api -> runtime -> llm`; `database` and `evalua
 | Multi-Agent | `delegate_to_agent` with depth limits and stateless child-Agent execution |
 | Persistence | SQLite Repository layer for Agents, Runs, Memory, API keys, Audit, Evaluation, and migrations |
 | Run History | Filtering, offset/cursor pagination, ordering, token usage, tool traces, and full message history |
+| API Keys | Hashed workspace-scoped keys with a stable id-keyed cursor pagination list |
+| Batch Operations | Workspace-scoped Memory deletion, API key revocation, and Agent deletion with bounded input lists |
 | Evaluation | Runtime metrics plus JSONL datasets, rule evaluators, tool trajectory checks, optional LLM judge, and regression reports |
 | Observability | Trace/request/run context, audit records, OpenTelemetry spans, and low-cardinality Prometheus metrics |
 | Multi-Tenant | User, Workspace, membership, resource isolation, quota, usage, and sliding-window rate limit |
@@ -310,11 +312,82 @@ curl "http://127.0.0.1:8000/api/v1/agents?page_size=20"
 curl "http://127.0.0.1:8000/api/v1/agents?page_size=20&cursor=<next_cursor>"
 ```
 
+Partially update one Agent without replacing omitted fields:
+
+```bash
+curl -X PATCH "http://127.0.0.1:8000/api/v1/agents/researcher" \
+  -H "Content-Type: application/json" \
+  -d '{"description":"updated role","temperature":0.3}'
+```
+
+The same patch shape can update up to 100 Agents atomically in the current
+Workspace. Explicit `null` clears nullable fields; `description`, `tools`, and
+`metadata` reset to their empty values.
+
+```bash
+curl -X PATCH "http://127.0.0.1:8000/api/v1/agents/batch" \
+  -H "Content-Type: application/json" \
+  -d '{"updates":[{"name":"researcher","description":"updated role"},{"name":"summarizer","tools":null}]}'
+```
+
+The response returns updated Agent details and reports unknown or inaccessible
+names in `missing_names`.
+
+Delete up to 100 visible Agents in one workspace-scoped request:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/agents/batch-delete" \
+  -H "Content-Type: application/json" \
+  -d '{"names":["researcher","summarizer"]}'
+```
+
+The response reports `requested`, `deleted`, and `missing_names`; unknown or
+inaccessible Agents are treated as missing.
+
 Long-term Memory uses a creation-time cursor with the record ID as a tie-breaker:
 
 ```bash
 curl "http://127.0.0.1:8000/api/v1/memories?limit=50"
 curl "http://127.0.0.1:8000/api/v1/memories?limit=50&cursor=<next_cursor>"
+```
+
+Delete several visible memories in one workspace-scoped request:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/memories/batch-delete" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":[12,18,24]}'
+```
+
+The response reports `requested`, `deleted`, and `missing_ids`; records outside
+the current Workspace/user visibility are treated as missing.
+
+The API Key list paginates over the database row id, so issuing new keys mid-walk
+never shifts the remaining pages:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/api-keys?limit=50"
+curl "http://127.0.0.1:8000/api/v1/api-keys?limit=50&cursor=<next_cursor>"
+```
+
+Revoke up to 100 active keys atomically within the current Workspace:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/api-keys/batch-revoke" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":[12,18,24]}'
+```
+
+The response reports `requested`, `revoked`, and `missing_ids`; revoked,
+unknown, and inaccessible keys are treated as missing. Revocation remains a
+soft delete so the records stay available for audit.
+
+Audit records retain their existing JSON-array response. Follow the opaque
+`X-Next-Cursor` response header when walking older records:
+
+```bash
+curl -i "http://127.0.0.1:8000/api/v1/audit?limit=50"
+curl -i "http://127.0.0.1:8000/api/v1/audit?limit=50&cursor=<x-next-cursor>"
 ```
 
 Read one execution trace:

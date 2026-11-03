@@ -18,6 +18,9 @@ from agentos.core.exceptions import ValidationError
 
 _MAX_CURSOR_CHARS = 2048
 _KEYSET_VERSION = 2
+# SQLite ``rowid`` upper bound; cursors pointing at integer primary keys are checked
+# against it so a crafted token can never be handed to the query layer.
+_MAX_SQLITE_ROW_ID = 2**63 - 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +133,22 @@ def ensure_cursor_order(
         )
 
 
+def ensure_cursor_row_id(item_id: str) -> int:
+    """Validate and parse the integer row id carried by a cursor.
+
+    Lists anchored on a SQLite integer primary key (long-term memory, API keys)
+    store that id as text.  Parsing it here keeps every caller from repeating the
+    same range checks and from accidentally building SQL from a raw cursor value.
+    """
+    try:
+        row_id = int(item_id)
+    except (TypeError, ValueError) as exc:
+        raise _invalid_cursor() from exc
+    if not 1 <= row_id <= _MAX_SQLITE_ROW_ID:
+        raise _invalid_cursor()
+    return row_id
+
+
 def _encode_payload(payload: dict[str, object]) -> str:
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
@@ -162,4 +181,5 @@ __all__ = [
     "encode_cursor",
     "encode_keyset_cursor",
     "ensure_cursor_order",
+    "ensure_cursor_row_id",
 ]

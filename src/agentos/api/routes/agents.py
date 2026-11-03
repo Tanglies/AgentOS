@@ -6,9 +6,14 @@ from fastapi import APIRouter, Query, Response, status
 
 from agentos.api.deps import AgentServiceDep, RuntimeDep, ToolPolicyServiceDep, require
 from agentos.api.schemas import (
+    AgentBatchDeleteRequest,
+    AgentBatchDeleteResponse,
+    AgentBatchUpdateRequest,
+    AgentBatchUpdateResponse,
     AgentCreateRequest,
     AgentListResponse,
     AgentSummary,
+    AgentUpdateRequest,
     ToolListResponse,
     ToolSummary,
     ToolUpdateRequest,
@@ -78,6 +83,46 @@ async def create_agent(
     return AgentSummary.from_record(service.create(payload.to_agent()))
 
 
+@router.patch(
+    "/batch",
+    response_model=AgentBatchUpdateResponse,
+    summary="批量更新 Agent",
+    dependencies=[require(Permission.AGENT_WRITE)],
+)
+async def batch_update_agents(
+    payload: AgentBatchUpdateRequest, service: AgentServiceDep
+) -> AgentBatchUpdateResponse:
+    """Partially update visible Agents and report names that did not exist."""
+    records, missing_names = service.update_many(
+        [(item.name, item.to_patch()) for item in payload.updates]
+    )
+    return AgentBatchUpdateResponse(
+        requested=len(payload.updates),
+        updated=len(records),
+        items=[AgentSummary.from_record(record) for record in records],
+        missing_names=missing_names,
+    )
+
+
+@router.post(
+    "/batch-delete",
+    response_model=AgentBatchDeleteResponse,
+    summary="批量删除 Agent",
+    dependencies=[require(Permission.AGENT_WRITE)],
+)
+async def batch_delete_agents(
+    payload: AgentBatchDeleteRequest, service: AgentServiceDep
+) -> AgentBatchDeleteResponse:
+    """Delete visible Agents and report names that did not exist."""
+    removed_names = service.delete_many(payload.names)
+    removed_set = set(removed_names)
+    return AgentBatchDeleteResponse(
+        requested=len(payload.names),
+        deleted=len(removed_names),
+        missing_names=[name for name in payload.names if name not in removed_set],
+    )
+
+
 @router.get(
     "/{name}",
     response_model=AgentSummary,
@@ -87,6 +132,21 @@ async def create_agent(
 async def get_agent(name: str, service: AgentServiceDep) -> AgentSummary:
     """返回 Agent 的完整配置与生命周期元数据。"""
     return AgentSummary.from_record(service.get(name))
+
+
+@router.patch(
+    "/{name}",
+    response_model=AgentSummary,
+    summary="更新 Agent",
+    dependencies=[require(Permission.AGENT_WRITE)],
+)
+async def update_agent(
+    name: str,
+    payload: AgentUpdateRequest,
+    service: AgentServiceDep,
+) -> AgentSummary:
+    """Partially update one Agent; omitted fields keep their current values."""
+    return AgentSummary.from_record(service.update(name, payload.to_patch()))
 
 
 @router.get(

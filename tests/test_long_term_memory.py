@@ -13,7 +13,7 @@ from agentos.core.pagination import PaginationCursor, encode_cursor
 from agentos.llm import EchoLLMClient
 from agentos.llm.base import ToolCall
 from agentos.runtime import Agent, AgentRuntime, LongTermMemory, ToolRegistry
-from agentos.runtime.long_term_memory import extract_terms
+from agentos.runtime.long_term_memory import MemoryScope, extract_terms
 from agentos.runtime.memory_tools import create_memory_tools
 
 
@@ -82,6 +82,106 @@ def test_forget_reports_whether_record_existed(memory: LongTermMemory) -> None:
     assert memory.forget(record.id) is True
     assert memory.forget(record.id) is False
     assert memory.count() == 0
+
+
+def test_forget_many_removes_only_visible_records(memory: LongTermMemory) -> None:
+    records = [memory.remember(content) for content in ("a", "b", "c")]
+
+    removed = memory.forget_many([records[0].id, records[2].id, 9999, records[0].id])
+
+    assert removed == [records[0].id, records[2].id]
+    assert [record.content for record in memory.list()] == ["b"]
+
+
+def test_forget_many_is_scoped_to_the_current_workspace(memory: LongTermMemory) -> None:
+    first = memory.remember("workspace one", workspace_id=1)
+    second = memory.remember("workspace two", workspace_id=2)
+
+    removed = memory.forget_many([first.id, second.id], workspace_id=1)
+
+    assert removed == [first.id]
+    assert memory.count(workspace_id=1) == 0
+    assert memory.count(workspace_id=2) == 1
+
+
+def test_forget_many_is_scoped_to_user_memories(memory: LongTermMemory) -> None:
+    first = memory.remember(
+        "user one", scope=MemoryScope.USER, workspace_id=1, user_id=1
+    )
+    second = memory.remember(
+        "user two", scope=MemoryScope.USER, workspace_id=1, user_id=2
+    )
+
+    removed = memory.forget_many([first.id, second.id], workspace_id=1, user_id=1)
+
+    assert removed == [first.id]
+    assert memory.count(workspace_id=1, user_id=1) == 0
+    assert memory.count(workspace_id=1, user_id=2) == 1
+
+
+def test_update_many_preserves_omitted_fields_and_workspace_scope(
+    memory: LongTermMemory,
+) -> None:
+    first = memory.remember("first", session_id="session-one", workspace_id=1)
+    second = memory.remember("second", session_id="session-two", workspace_id=1)
+    other = memory.remember("other tenant", workspace_id=2)
+
+    records = memory.update_many(
+        [
+            (first.id, {"content": "  updated first  "}),
+            (second.id, {"session_id": None}),
+            (other.id, {"content": "must not change"}),
+            (9999, {"content": "missing"}),
+        ],
+        workspace_id=1,
+    )
+
+    assert [record.id for record in records] == [first.id, second.id]
+    assert records[0].content == "updated first"
+    assert records[0].session_id == "session-one"
+    assert records[0].created_at == first.created_at
+    assert records[1].content == "second"
+    assert records[1].session_id is None
+    assert memory.list(workspace_id=2)[0].content == "other tenant"
+
+
+def test_update_many_is_scoped_to_user_memories(memory: LongTermMemory) -> None:
+    first = memory.remember(
+        "user one", scope=MemoryScope.USER, workspace_id=1, user_id=1
+    )
+    second = memory.remember(
+        "user two", scope=MemoryScope.USER, workspace_id=1, user_id=2
+    )
+
+    records = memory.update_many(
+        [
+            (first.id, {"content": "updated user one"}),
+            (second.id, {"content": "must not change"}),
+        ],
+        workspace_id=1,
+        user_id=1,
+    )
+
+    assert [record.id for record in records] == [first.id]
+    assert memory.list(workspace_id=1, user_id=1)[0].content == "updated user one"
+    assert memory.list(workspace_id=1, user_id=2)[0].content == "user two"
+
+
+def test_update_many_rejects_blank_content_before_writing(
+    memory: LongTermMemory,
+) -> None:
+    first = memory.remember("first")
+    second = memory.remember("second")
+
+    with pytest.raises(ValueError):
+        memory.update_many(
+            [
+                (first.id, {"content": "changed"}),
+                (second.id, {"content": "   "}),
+            ]
+        )
+
+    assert [record.content for record in memory.list()] == ["second", "first"]
 
 
 def test_clear_removes_everything(memory: LongTermMemory) -> None:
@@ -276,6 +376,134 @@ def test_memory_crud_over_api(client: TestClient) -> None:
     assert client.get("/api/v1/memories").json()["total"] == 0
 
 
+def test_batch_delete_memories_reports_deleted_and_missing_ids(
+    client: TestClient,
+) -> None:
+    ids = [
+        client.post("/api/v1/memories", json={"content": content}).json()["id"]
+        for content in ("first", "second", "third")
+    ]
+
+    response = client.post(
+        "/api/v1/memories/batch-delete",
+        json={"ids": [ids[0], ids[2], 9999]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "requested": 3,
+        "deleted": 2,
+        "missing_ids": [9999],
+    }
+    remaining = client.get("/api/v1/memories").json()
+    assert remaining["total"] == 1
+    assert remaining["items"][0]["content"] == "second"
+
+
+def test_batch_update_memories_preserves_fields_and_reports_missing_ids(
+    client: TestClient,
+) -> None:
+    records = [
+        client.post(
+            "/api/v1/memories",
+            json={"content": content, "session_id": session_id},
+        ).json()
+        for content, session_id in (
+            ("first", "session-one"),
+            ("second", "session-two"),
+        )
+    ]
+
+    response = client.patch(
+        "/api/v1/memories/batch",
+        json={
+            "updates": [
+                {"id": records[0]["id"], "content": "  updated first  "},
+                {"id": records[1]["id"], "session_id": None},
+                {"id": 9999, "content": "missing"},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["requested"] == 3
+    assert body["updated"] == 2
+    assert body["missing_ids"] == [9999]
+    assert [item["content"] for item in body["items"]] == ["updated first", "second"]
+    assert body["items"][0]["session_id"] == "session-one"
+    assert body["items"][1]["session_id"] is None
+
+    listed = client.get("/api/v1/memories").json()
+    assert [item["content"] for item in listed["items"]] == ["second", "updated first"]
+
+
+def test_update_memory_preserves_omitted_fields(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/memories",
+        json={"content": "original", "session_id": "session-one"},
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/memories/{created['id']}",
+        json={"content": "updated"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"] == "updated"
+    assert body["session_id"] == "session-one"
+    assert body["created_at"] == created["created_at"]
+
+
+def test_update_unknown_memory_returns_404(client: TestClient) -> None:
+    response = client.patch("/api/v1/memories/9999", json={"content": "missing"})
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        [],
+        [{"id": 1, "content": "first"}, {"id": 1, "content": "duplicate"}],
+        [{"id": 0, "content": "invalid id"}],
+        [{"id": 1}],
+        [{"id": 1, "content": None}],
+        [{"id": 1, "content": "   "}],
+        [{"id": 1, "content": "x" * 4001}],
+        [{"id": memory_id, "content": "too many"} for memory_id in range(1, 102)],
+    ],
+)
+def test_batch_update_rejects_invalid_updates(
+    client: TestClient, updates: list[dict[str, object]]
+) -> None:
+    response = client.patch(
+        "/api/v1/memories/batch",
+        json={"updates": updates},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [
+        [],
+        [1, 1],
+        [0],
+        list(range(1, 102)),
+    ],
+)
+def test_batch_delete_rejects_invalid_id_sets(client: TestClient, ids: list[int]) -> None:
+    response = client.post("/api/v1/memories/batch-delete", json={"ids": ids})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_memory_api_supports_cursor_pagination(client: TestClient) -> None:
     for content in ("第一", "第二", "第三"):
         response = client.post("/api/v1/memories", json={"content": content})
@@ -375,6 +603,8 @@ def test_openapi_exposes_memories_route(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
 
     assert "/api/v1/memories" in schema["paths"]
+    assert "/api/v1/memories/batch-delete" in schema["paths"]
+    assert "/api/v1/memories/batch" in schema["paths"]
     assert "/api/v1/memories/{memory_id}" in schema["paths"]
 
 

@@ -95,6 +95,66 @@ GET /api/v1/agents/{name}
 
 返回完整 `AgentSummary`，包括提示词、模型参数、工具、metadata 和时间戳。
 
+### 更新
+
+单条更新使用部分更新语义，只修改请求中明确出现的字段：
+
+```http
+PATCH /api/v1/agents/{name}
+```
+
+```json
+{
+  "description": "更新后的职责",
+  "model": "qwen3.8-flash",
+  "temperature": 0.3
+}
+```
+
+未出现字段保持原值。需要清空字段时显式传 `null`：
+
+- `system_prompt`、`model`、`temperature`、`max_iterations` 清为 `null`；
+- `description` 清为空字符串；
+- `tools`、`metadata` 清为空数组 / 空对象。
+
+请求至少包含一个可更新字段，否则返回 `422 validation_error`。Agent 不存在
+或不属于当前 Workspace 时返回 `404 not_found`。
+
+### 批量更新
+
+```http
+PATCH /api/v1/agents/batch
+```
+
+```json
+{
+  "updates": [
+    {"name": "researcher", "description": "调研主管"},
+    {"name": "summarizer", "tools": ["calculate"], "temperature": 0.2}
+  ]
+}
+```
+
+单次最多 100 条；空列表、重复名称、空补丁、非法名称以及字段越界返回
+`422 validation_error`。响应按请求顺序返回实际更新的 Agent：
+
+```json
+{
+  "requested": 3,
+  "updated": 2,
+  "items": [
+    {"name": "researcher", "description": "调研主管", "...": "..."},
+    {"name": "summarizer", "temperature": 0.2, "...": "..."}
+  ],
+  "missing_names": ["deleted-worker"]
+}
+```
+
+SQLite 后端在单个事务内读取当前 Workspace 可见记录并应用所有补丁；任一条
+合并后的 Agent 校验失败会回滚整个批次。不存在或无权访问的名称只进入
+`missing_names`，不暴露其他 Workspace 的状态。每个实际更新会记录
+`agent.update` 审计事件。
+
 ### 删除
 
 ```http
@@ -167,6 +227,141 @@ GET /api/v1/runs
 ```http
 GET /api/v1/runs?limit=20&cursor=eyJjcmVhdGVkX2F0IjoiLi4uIn0
 ```
+
+## Agent 批量删除
+
+```http
+POST /api/v1/agents/batch-delete
+```
+
+请求体：
+
+```json
+{
+  "names": ["researcher", "summarizer", "obsolete-worker"]
+}
+```
+
+单次最多 100 条；空列表、重复名称、空名称、不符合
+`^[A-Za-z0-9_-]+$` 的名称和超长名称返回 `422 validation_error`。
+删除只作用于当前 Workspace 可见的 Agent；不存在或无权访问的名称统一计入
+`missing_names`，不暴露其他 Workspace 的状态。
+
+```json
+{
+  "requested": 3,
+  "deleted": 2,
+  "missing_names": ["obsolete-worker"]
+}
+```
+
+SQLite 后端的可见性确认与删除在单个事务内执行，并为每个实际删除的 Agent
+记录 `agent.unregister` 审计事件。单条 `DELETE /api/v1/agents/{name}`
+保持兼容。
+
+## 长期 Memory 批量删除
+
+```http
+POST /api/v1/memories/batch-delete
+```
+
+请求体：
+
+```json
+{
+  "ids": [12, 18, 24]
+}
+```
+
+单次最多 100 条，重复 ID、非正整数和空列表返回 `422 validation_error`。
+删除只作用于当前 Workspace 可见的记忆；USER scope 记录还必须属于当前
+用户。不存在或无权访问的 ID 统一计入 `missing_ids`，不暴露其他租户状态。
+
+```json
+{
+  "requested": 3,
+  "deleted": 2,
+  "missing_ids": [24]
+}
+```
+
+实现会在单个 SQLite 事务内先确认可见 ID 再执行删除，避免部分失败时
+返回不准确的删除结果。单条 `DELETE /api/v1/memories/{memory_id}` 保持兼容。
+
+## API Key 列表
+
+```http
+GET /api/v1/api-keys?limit=50
+```
+
+支持的查询参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `include_revoked` | 是否包含已吊销（软删除）的记录，默认 `false` |
+| `limit` | 每页数量，默认 50，最大 500 |
+| `cursor` | 上一页返回的 `next_cursor`，用于并发写入下稳定的 keyset 分页 |
+
+响应保留 `items` / `total`，并新增 `next_cursor`；`total` 是过滤后的**总数**，
+不是本页条数，`next_cursor` 为 `null` 表示已到末页。
+
+列表按数据库自增 `id` 升序返回，游标记录的是上一页最后一条记录的 id：
+
+```http
+GET /api/v1/api-keys?limit=50&cursor=eyJ2IjoyLCJrZXkiOiI3In0
+```
+
+因此翻页期间**签发新密钥**只会追加在游标之后，**吊销密钥**也不会让后续页面
+跳过记录（除非显式使用 `include_revoked=true`）。Agent 名称游标、Run History
+时间游标等跨列表游标都会被拒绝为 `422 validation_error`。
+
+## API Key 批量吊销
+
+```http
+POST /api/v1/api-keys/batch-revoke
+```
+
+请求体：
+
+```json
+{
+  "ids": [12, 18, 24]
+}
+```
+
+单次最多 100 条，重复 ID、非正整数和空列表返回 `422 validation_error`。
+吊销只作用于当前 Workspace 中仍有效的密钥；不存在、已吊销或无权访问的 ID
+统一计入 `missing_ids`，不暴露其他 Workspace 的状态。
+
+```json
+{
+  "requested": 3,
+  "revoked": 2,
+  "missing_ids": [24]
+}
+```
+
+确认与吊销在单个 SQLite 事务内执行，并继续使用软删除保留审计线索。单条
+`DELETE /api/v1/api-keys/{key_id}` 保持兼容。
+
+## Audit 列表
+
+```http
+GET /api/v1/audit?limit=50
+```
+
+Audit 保留原有的 JSON 数组响应，避免破坏已有客户端；当还有下一页时，
+响应头 `X-Next-Cursor` 携带不透明游标：
+
+```http
+GET /api/v1/audit?limit=50&cursor=eyJjcmVhdGVkX2F0IjoiLi4uIn0
+```
+
+游标以 `created_at + id` 定位，翻页期间新增或删除此前未读记录也不会让当前
+游标位置漂移。支持的参数包括 `action` / `actor` / `run_id` / `status` /
+`order` / `limit` / `offset` / `cursor`；旧 `offset` 分页保持可用，
+但 `cursor` 不能与非零 `offset` 同时使用。游标方向必须与 `order` 一致，
+跨列表游标或损坏游标返回 `422 validation_error`。
 
 ## Dashboard 数据来源
 

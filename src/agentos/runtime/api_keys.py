@@ -206,16 +206,30 @@ class ApiKeyStore:
             raise NotFoundError(f"api key not found: {key_id}", details={"key_id": key_id})
         return record
 
+    def revoke_many(
+        self, key_ids: list[int], *, workspace_id: int | None = None
+    ) -> list[int]:
+        """Revoke several visible active keys and return the revoked ids."""
+        return self._repo.revoke_many(
+            key_ids,
+            revoked_at=datetime.now(UTC),
+            workspace_id=workspace_id or DEFAULT_WORKSPACE_ID,
+        )
+
     def list(
         self,
         *,
         include_revoked: bool = False,
         workspace_id: int | None = None,
+        limit: int | None = None,
+        after_id: int | None = None,
     ) -> list[ApiKeyRecord]:
-        """列出密钥记录（不含明文与哈希）。"""
+        """列出密钥记录（不含明文与哈希），可按 id 游标取下一页。"""
         return self._repo.list(
             include_revoked=include_revoked,
             workspace_id=workspace_id,
+            limit=limit,
+            after_id=after_id,
         )
 
     def count(

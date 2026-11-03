@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from time import time_ns
 
 import pytest
 from fastapi import FastAPI
@@ -12,6 +13,14 @@ from fastapi.testclient import TestClient
 
 from agentos.api.app import create_app
 from agentos.core.config import Settings, reset_settings_cache
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Keep temp files in the repository and isolate each pytest run."""
+    if not config.option.basetemp:
+        config.option.basetemp = str(
+            Path(".pytest_tmp") / f"tmp-{os.getpid()}-{time_ns()}"
+        )
 
 
 @pytest.fixture(autouse=True)

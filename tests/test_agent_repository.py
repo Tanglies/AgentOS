@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from agentos.core.exceptions import NotFoundError
 from agentos.core.pagination import KeysetCursor
@@ -94,6 +95,64 @@ def test_replace_preserves_id_and_created_at(tmp_path: Path) -> None:
     assert repo.get("worker").description == "new"
 
 
+def test_update_many_preserves_omitted_fields_and_workspace_scope(
+    tmp_path: Path,
+) -> None:
+    repo = _repository(tmp_path / "agents.db")
+    alpha = repo.add(
+        Agent(name="alpha", description="old", model="model-a"),
+        created_at=NOW,
+    )
+    repo.add(Agent(name="beta", system_prompt="keep"), created_at=NOW)
+    repo.add(
+        Agent(name="alpha", description="other tenant"),
+        created_at=NOW,
+        workspace_id=2,
+    )
+
+    records = repo.update_many(
+        [
+            ("beta", {"description": "updated"}),
+            ("alpha", {"temperature": 0.4}),
+            ("missing", {"description": "ignored"}),
+        ],
+        updated_at=NOW + timedelta(seconds=1),
+        workspace_id=1,
+    )
+
+    assert [record.name for record in records] == ["beta", "alpha"]
+    beta, updated_alpha = records
+    assert beta.description == "updated"
+    assert beta.system_prompt == "keep"
+    assert updated_alpha.description == "old"
+    assert updated_alpha.model == "model-a"
+    assert updated_alpha.temperature == 0.4
+    assert updated_alpha.id == alpha.id
+    assert updated_alpha.created_at == NOW
+    assert updated_alpha.updated_at == NOW + timedelta(seconds=1)
+    assert repo.get("alpha", workspace_id=2).description == "other tenant"
+
+
+def test_update_many_rolls_back_when_a_merged_agent_is_invalid(
+    tmp_path: Path,
+) -> None:
+    repo = _repository(tmp_path / "agents.db")
+    repo.add(Agent(name="alpha", description="old-alpha"), created_at=NOW)
+    repo.add(Agent(name="beta", description="old-beta"), created_at=NOW)
+
+    with pytest.raises(PydanticValidationError):
+        repo.update_many(
+            [
+                ("alpha", {"description": "new-alpha"}),
+                ("beta", {"temperature": 3.0}),
+            ],
+            updated_at=NOW + timedelta(seconds=1),
+        )
+
+    assert repo.get("alpha").description == "old-alpha"
+    assert repo.get("beta").description == "old-beta"
+
+
 def test_list_records_supports_pagination(tmp_path: Path) -> None:
     repo = _repository(tmp_path / "agents.db")
     for name in ("z", "a", "m"):
@@ -142,6 +201,22 @@ def test_remove_is_idempotent_for_missing_agent(tmp_path: Path) -> None:
 
     assert repo.remove("temp") is True
     assert repo.remove("temp") is False
+
+
+def test_remove_many_deletes_only_visible_agents(tmp_path: Path) -> None:
+    repo = _repository(tmp_path / "agents.db")
+    for name in ("alpha", "bravo", "charlie"):
+        repo.add(Agent(name=name), created_at=NOW)
+    repo.add(Agent(name="other-workspace"), created_at=NOW, workspace_id=2)
+
+    removed = repo.remove_many(
+        ["charlie", "alpha", "alpha", "missing"],
+        workspace_id=1,
+    )
+
+    assert removed == ["alpha", "charlie"]
+    assert repo.names(workspace_id=1) == ["bravo"]
+    assert repo.names(workspace_id=2) == ["other-workspace"]
 
 
 def test_legacy_payload_is_backfilled_into_columns(tmp_path: Path) -> None:

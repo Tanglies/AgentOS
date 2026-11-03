@@ -3,6 +3,267 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-11-03
+
+### 新增
+
+- 无
+
+### 修改
+
+- pytest 缓存恢复到标准 `.pytest_cache/`，仓库内临时测试目录改为每次运行唯一的
+  `.pytest_tmp/tmp-<pid>-<timestamp>/`
+
+### 修复
+
+- 修复固定 `.pytest_tmp/tmp` 在受限或沙箱环境中残留拒绝访问 ACL 时，全部测试
+  在 `tmp_path` 初始化阶段因 `PermissionError` 中断的问题
+
+### 技术记录
+
+- 在 `tests/conftest.py` 的 `pytest_configure` 阶段仅当调用方未显式指定
+  `--basetemp` 时生成运行级临时目录，既保留测试产物在仓库内，也避免历史目录
+  清理失败影响后续运行
+- 完整测试套件 719 项通过（2 个依赖弃用警告），`ruff check .` 通过，
+  `git diff --check` 通过
+
+### 下一步计划
+
+- 在网络与凭据可用时提交并推送积压的平台分页、批量操作和测试隔离变更
+
+## 2026-11-01
+
+### 新增
+
+- Agent 新增单条部分更新接口 `PATCH /api/v1/agents/{name}`，未传字段保持原值，
+  显式 `null` 可清空可空字段
+- Agent 新增批量更新接口 `PATCH /api/v1/agents/batch`，单次最多更新 100 个
+  当前 Workspace 可见的 Agent，并返回更新结果与 `missing_names`
+
+### 修改
+
+- `AgentRepository` 新增事务内批量补丁更新；`AgentService` 统一处理单条与批量
+  更新，并为每个实际更新记录 `agent.update` 审计事件
+- README、平台文档与 TODO 同步 Agent 更新语义、批量边界与生命周期进度
+
+### 修复
+
+- 兼容隔离回滚场景：`AgentRepository.update_many` 在单事务中执行，批次内任一
+  合并结果校验失败会回滚整个 SQLite 批次
+
+### 技术记录
+
+- 使用 Pydantic `model_fields_set` 区分「未提供」和「显式传 null」；描述、
+  工具与 metadata 的 `null` 分别归一化为空字符串、空数组与空对象，其余可空字段
+  保持 `null`
+- 批量更新按当前 Workspace 和名称定位记录，不存在或无权访问的名称统一进入
+  `missing_names`；新增 13 个 API / Repository 测试，完整测试套件 705 项通过，
+  `ruff check .` 通过
+
+### 下一步计划
+
+- 评估其他平台资源的批量更新边界，优先复用显式小批量、租户隔离和事务写入模式
+
+## 2026-10-31
+
+### 新增
+
+- Agent 新增 `POST /api/v1/agents/batch-delete`，单次可按名称删除最多
+  100 个当前 Workspace 可见的 Agent，并返回请求数、实际删除数和未找到的名称
+
+### 修改
+
+- `AgentRepository` / `AgentService` 新增事务内批量删除能力，每个实际删除的
+  Agent 继续记录 `agent.unregister` 审计事件
+- README、平台文档与 TODO 同步 Agent 批量删除的用法和批量操作进度
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 在单个 SQLite 事务内先确认当前 Workspace 的可见名称再删除，对不存在和无权
+  访问的名称统一返回 `missing_names`，不泄露跨租户状态
+- 请求拒绝空列表、重复名称、非法名称和超过 100 条的批次；新增 Repository、
+  API、输入校验与写权限测试；完整测试套件 692 项通过，`ruff check .` 通过
+
+### 下一步计划
+
+- 评估 Agent 等资源的批量更新语义，并保持批量删除的显式、小批量边界
+
+## 2026-10-30
+
+### 新增
+
+- API Key 新增 `POST /api/v1/api-keys/batch-revoke`，单次可吊销最多 100 条
+  有效密钥，并返回请求数、实际吊销数和未找到的 ID
+
+### 修改
+
+- `ApiKeyRepository` / `ApiKeyStore` 新增事务内批量软删除能力，复用 Workspace
+  可见性规则并保留审计记录
+- README、平台文档与 TODO 同步批量吊销用法和 API 完善进度
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 在同一 SQLite 事务内先确认当前 Workspace 的有效 ID 再更新 `revoked_at`，
+  对不存在、已吊销和无权访问的 ID 统一返回 `missing_ids`，不泄露跨租户状态
+- 请求拒绝空列表、非正整数、重复 ID 和超过 100 条的批次；新增领域、API、
+  Workspace 隔离与认证失效测试；完整测试套件 684 项通过，`ruff check .` 通过
+
+### 下一步计划
+
+- 评估 Agent 等其他资源的批量更新/删除语义，继续保留现有单条操作 API
+
+## 2026-10-29
+
+### 新增
+
+- 长期 Memory 新增 `POST /api/v1/memories/batch-delete`，单次可删除最多
+  100 条记录，并返回请求数、实际删除数和未找到的 ID
+
+### 修改
+
+- `MemoryRepository` / `LongTermMemory` 新增事务内批量删除能力，自动去重并
+  复用 Workspace/user 可见性规则
+- README 与 TODO 同步批量删除用法和后续批量操作范围
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 批量删除在单个 SQLite 事务中先确认可见 ID 再删除，避免返回未经实际删除的
+  成功结果；对无权访问或不存在记录统一视为 `missing_ids`，不泄露跨租户状态
+- 请求拒绝空列表、非正整数、重复 ID 和超过 100 条的批次；新增领域、API、
+  Workspace/user 隔离与 OpenAPI 测试；完整测试套件 678 项通过，
+  `ruff check .` 通过
+
+### 下一步计划
+
+- 评估 Agent 等其他资源的批量更新/删除语义，继续保留现有单条操作 API
+
+## 2026-10-28
+
+### 新增
+
+- 无
+
+### 修改
+
+- pytest 的临时目录与缓存固定到已忽略的 `.pytest_tmp/`，避免受限环境无法写入系统
+  `TEMP` 目录
+
+### 修复
+
+- 修复自动化沙箱内直接执行 `pytest` 时，全部测试在 `tmp_path` 初始化阶段因
+  `PermissionError` 中断的问题
+
+### 技术记录
+
+- 使用 pytest `--basetemp` 和 `cache_dir` 将测试产物留在仓库内；完整测试套件
+  670 项通过，`ruff check .` 通过
+- 完成并验证 API Key 与 Audit 列表的稳定 keyset 游标分页收尾，包括并发新增、
+  软删除、跨列表游标、损坏游标与排序方向校验
+
+### 下一步计划
+
+- 评估批量删除 / 批量更新的最小安全边界，并保留现有单条操作 API
+
+## 2026-10-25
+
+### 新增
+
+- Audit 列表支持稳定的 keyset `cursor` 分页，通过响应头 `X-Next-Cursor`
+  返回下一页位置
+
+### 修改
+
+- `AuditRepository.list` 与 `AuditLog.list` 增加可选 `cursor`，按
+  `created_at + id` 定位，继续兼容原有 `limit` / `offset` 查询
+- `GET /api/v1/audit` 保持 JSON 数组响应不变；游标模式禁止与非零
+  `offset` 混用，并校验排序方向
+- `README.md`、`docs/platform.md`、`TODO.md` 同步 Audit 分页用法和进度
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 为兼容既有数组响应，将下一页游标放在 `X-Next-Cursor` 响应头，而不是引入
+  会改变响应结构的 envelope；每页多取一条判断是否还有下一页
+- 游标记录时间戳与整数记录 id，并以相同方向和两个键做 keyset 查询，避免
+  同时间戳记录及翻页期间新增记录导致重复或遗漏
+- 新增 8 个存储与 API 测试，覆盖双向翻页、新增记录、末页、损坏/跨列表游标
+  以及游标与 offset 的互斥校验
+
+### 下一步计划
+
+- 评估批量删除 / 批量更新的最小安全边界，并保留现有单条操作 API
+
+## 2026-10-23
+
+### 新增
+
+- API Key 游标分页补充页大小边界测试，以及游标越过末条后的空页测试
+
+### 修改
+
+- 无
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 完成 API Key 列表稳定游标分页的收尾验证：新增与吊销密钥不会使后续页面
+  重复或跳过记录；非法页大小和不兼容游标返回结构化的 `422 validation_error`
+- 后端全量测试通过，`ruff check .` 通过
+
+### 下一步计划
+
+- 将 cursor 分页推广到 Audit 列表（需同时处理数组响应兼容性），再评估批量操作
+
+## 2026-10-16
+
+### 新增
+
+- API Key 列表接口 `GET /api/v1/api-keys` 支持 `limit` 与稳定的 keyset `cursor`
+  分页，响应新增 `next_cursor`
+
+### 修改
+
+- `ApiKeyRepository.list` / `ApiKeyStore.list` 新增 `limit` 与 `after_id` 参数，
+  可按上一页最后一条记录的 id 继续查询
+- `total` 语义明确为过滤后的总数（原为「返回条数」，密钥数量少时两者相同）
+- 分页模块新增 `ensure_cursor_row_id`，统一校验指向 SQLite 整数主键的游标；
+  Memory 列表路由改为复用它，删除重复的本地校验
+- `docs/platform.md`、`README.md` 补充 API Key 列表分页用法
+
+### 修复
+
+- API Key 列表原先无上限返回全部密钥；现在默认每页 50 条，避免密钥数量增长后
+  一次响应过大
+
+### 技术记录
+
+- 该列表沿用升序 `id` 排序，游标同时记录排序键与记录 id 并要求两者一致，
+  因此 Agent 名称游标、Run History 时间游标等跨列表游标都会被拒绝（422）
+- 每页多取一条记录判断是否还有下一页，末页不返回多余的 `next_cursor`
+- 新增 12 个测试（API 11 个 + Repository 1 个），测试总数 647 → 659；`ruff check .` 通过
+
+### 下一步计划
+
+- 将 cursor 分页推广到 Audit 列表（需同时处理数组响应兼容性），再评估批量操作
+
 ## 2026-10-15
 
 ### 新增

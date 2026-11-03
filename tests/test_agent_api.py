@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -98,6 +99,127 @@ def test_get_agent_detail(tmp_path: Path) -> None:
     assert response.json()["description"] == "x"
 
 
+def test_update_agent_preserves_omitted_fields_and_can_clear_optional_fields(
+    tmp_path: Path,
+) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        client.post(
+            "/api/v1/agents",
+            json={
+                "name": "worker",
+                "description": "old",
+                "system_prompt": "old prompt",
+                "model": "qwen3.8-max",
+                "temperature": 0.2,
+                "max_iterations": 5,
+                "tools": ["calculate"],
+                "metadata": {"owner": "platform"},
+            },
+        )
+        response = client.patch(
+            "/api/v1/agents/worker",
+            json={
+                "description": "updated",
+                "system_prompt": None,
+                "tools": None,
+                "metadata": None,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["description"] == "updated"
+    assert body["system_prompt"] is None
+    assert body["model"] == "qwen3.8-max"
+    assert body["temperature"] == 0.2
+    assert body["max_iterations"] == 5
+    assert body["tools"] == []
+    assert body["metadata"] == {}
+
+
+def test_update_unknown_agent_returns_not_found(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        response = client.patch(
+            "/api/v1/agents/missing",
+            json={"description": "updated"},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_update_agent_rejects_an_empty_patch(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        client.post("/api/v1/agents", json={"name": "worker"})
+        response = client.patch("/api/v1/agents/worker", json={})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_batch_update_agents_reports_updated_and_missing_names(
+    tmp_path: Path,
+) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        for name in ("alpha", "beta"):
+            assert client.post("/api/v1/agents", json={"name": name}).status_code == 201
+
+        response = client.patch(
+            "/api/v1/agents/batch",
+            json={
+                "updates": [
+                    {"name": "beta", "description": "updated beta"},
+                    {"name": "alpha", "temperature": 0.5},
+                    {"name": "missing", "model": "qwen3.8-flash"},
+                ]
+            },
+        )
+        audit = client.get(
+            "/api/v1/audit",
+            params={"action": "agent.update", "limit": 10},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["requested"] == 3
+    assert body["updated"] == 2
+    assert body["missing_names"] == ["missing"]
+    assert [item["name"] for item in body["items"]] == ["beta", "alpha"]
+    assert body["items"][0]["description"] == "updated beta"
+    assert body["items"][1]["temperature"] == 0.5
+    assert audit.status_code == 200
+    assert {entry["target"] for entry in audit.json()} == {"alpha", "beta"}
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        [],
+        [
+            {"name": "worker", "description": "x"},
+            {"name": "worker", "model": "qwen3.8-flash"},
+        ],
+        [{"name": "worker"}],
+        [{"name": "bad name", "description": "x"}],
+        [
+            {"name": f"agent{index}", "description": "x"}
+            for index in range(101)
+        ],
+    ],
+)
+def test_batch_update_rejects_invalid_updates(
+    tmp_path: Path, updates: list[dict[str, object]]
+) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        response = client.patch(
+            "/api/v1/agents/batch",
+            json={"updates": updates},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_duplicate_agent_returns_conflict(tmp_path: Path) -> None:
     with TestClient(_app(tmp_path)) as client:
         client.post("/api/v1/agents", json={"name": "worker"})
@@ -135,6 +257,54 @@ def test_delete_agent_then_get_returns_not_found(tmp_path: Path) -> None:
     assert fetched.status_code == 404
 
 
+def test_batch_delete_agents_reports_deleted_and_missing_names(
+    tmp_path: Path,
+) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        for name in ("first", "second", "third"):
+            assert client.post("/api/v1/agents", json={"name": name}).status_code == 201
+
+        response = client.post(
+            "/api/v1/agents/batch-delete",
+            json={"names": ["third", "first", "missing"]},
+        )
+
+        second = client.get("/api/v1/agents/second")
+        first = client.get("/api/v1/agents/first")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "requested": 3,
+        "deleted": 2,
+        "missing_names": ["missing"],
+    }
+    assert second.status_code == 200
+    assert first.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        [],
+        ["worker", "worker"],
+        [""],
+        ["bad name"],
+        [f"agent{index}" for index in range(101)],
+    ],
+)
+def test_batch_delete_agents_rejects_invalid_name_sets(
+    tmp_path: Path, names: list[str]
+) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        response = client.post(
+            "/api/v1/agents/batch-delete",
+            json={"names": names},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_agent_survives_application_restart(tmp_path: Path) -> None:
     with TestClient(_app(tmp_path)) as client:
         client.post("/api/v1/agents", json={"name": "persistent", "description": "keep"})
@@ -163,3 +333,49 @@ def test_read_only_key_cannot_create_agent(tmp_path: Path) -> None:
 
     assert read.status_code == 200
     assert write.status_code == 403
+
+
+def test_read_only_key_cannot_batch_delete_agents(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path, auth=True)) as client:
+        created = client.post(
+            "/api/v1/agents",
+            headers={HEADER: BOOTSTRAP_KEY},
+            json={"name": "protected"},
+        )
+        key = _issue(client, permissions=[Permission.AGENT_READ.value])
+        response = client.post(
+            "/api/v1/agents/batch-delete",
+            headers={HEADER: key},
+            json={"names": ["protected"]},
+        )
+
+    assert created.status_code == 201
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/api/v1/agents/protected", {"description": "blocked"}),
+        (
+            "/api/v1/agents/batch",
+            {"updates": [{"name": "protected", "description": "blocked"}]},
+        ),
+    ],
+)
+def test_read_only_key_cannot_update_agents(
+    tmp_path: Path,
+    path: str,
+    payload: dict[str, object],
+) -> None:
+    with TestClient(_app(tmp_path, auth=True)) as client:
+        created = client.post(
+            "/api/v1/agents",
+            headers={HEADER: BOOTSTRAP_KEY},
+            json={"name": "protected"},
+        )
+        key = _issue(client, permissions=[Permission.AGENT_READ.value])
+        response = client.patch(path, headers={HEADER: key}, json=payload)
+
+    assert created.status_code == 201
+    assert response.status_code == 403

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agentos.database.models import AgentRecord
 from agentos.evaluation.models import EvaluationResult, EvaluationRun
@@ -142,6 +143,37 @@ class AgentCreateRequest(BaseModel):
         return Agent(**self.model_dump())
 
 
+class AgentUpdateRequest(BaseModel):
+    """Partially update one Agent while preserving omitted fields."""
+
+    description: str | None = None
+    system_prompt: str | None = None
+    model: str | None = None
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_iterations: int | None = Field(default=None, ge=1, le=64)
+    tools: list[str] | None = None
+    metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def require_at_least_one_change(self) -> AgentUpdateRequest:
+        changed = self.model_fields_set - {"name"}
+        if not changed:
+            raise ValueError("at least one Agent field must be provided")
+        return self
+
+    def to_patch(self) -> dict[str, Any]:
+        """Return only explicitly supplied fields in Agent-compatible form."""
+        patch = self.model_dump(exclude_unset=True)
+        patch.pop("name", None)
+        if patch.get("description") is None and "description" in patch:
+            patch["description"] = ""
+        if patch.get("tools") is None and "tools" in patch:
+            patch["tools"] = []
+        if patch.get("metadata") is None and "metadata" in patch:
+            patch["metadata"] = {}
+        return patch
+
+
 class AgentListResponse(BaseModel):
     """Agent 列表响应，保留总数并增加分页元数据。"""
 
@@ -150,6 +182,63 @@ class AgentListResponse(BaseModel):
     page: int = 1
     page_size: int = 20
     next_cursor: str | None = None
+
+
+class AgentBatchDeleteRequest(BaseModel):
+    """Delete up to 100 Agents by name in one request."""
+
+    names: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("names")
+    @classmethod
+    def validate_names(cls, names: list[str]) -> list[str]:
+        if len(set(names)) != len(names):
+            raise ValueError("agent names must be unique")
+        for name in names:
+            if not 1 <= len(name) <= 64 or not re.fullmatch(
+                AGENT_NAME_PATTERN, name
+            ):
+                raise ValueError("agent names must match ^[A-Za-z0-9_-]+$")
+        return names
+
+
+class AgentBatchDeleteResponse(BaseModel):
+    """Outcome of a workspace-scoped Agent batch deletion."""
+
+    requested: int
+    deleted: int
+    missing_names: list[str] = Field(default_factory=list)
+
+
+class AgentBatchUpdateItem(AgentUpdateRequest):
+    """One named Agent patch in a batch update."""
+
+    name: str = Field(min_length=1, max_length=64, pattern=AGENT_NAME_PATTERN)
+
+
+class AgentBatchUpdateRequest(BaseModel):
+    """Update up to 100 Agents in one request."""
+
+    updates: list[AgentBatchUpdateItem] = Field(min_length=1, max_length=100)
+
+    @field_validator("updates")
+    @classmethod
+    def validate_unique_names(
+        cls, updates: list[AgentBatchUpdateItem]
+    ) -> list[AgentBatchUpdateItem]:
+        names = [item.name for item in updates]
+        if len(set(names)) != len(names):
+            raise ValueError("agent names must be unique")
+        return updates
+
+
+class AgentBatchUpdateResponse(BaseModel):
+    """Outcome of a workspace-scoped Agent batch update."""
+
+    requested: int
+    updated: int
+    items: list[AgentSummary]
+    missing_names: list[str] = Field(default_factory=list)
 
 
 class RunSummary(BaseModel):
@@ -275,12 +364,98 @@ class MemoryCreateRequest(BaseModel):
     scope: MemoryScope = MemoryScope.WORKSPACE
 
 
+class MemoryUpdateRequest(BaseModel):
+    """Partially update one long-term memory while preserving omitted fields."""
+
+    content: str | None = Field(default=None, max_length=4000)
+    session_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("content")
+    @classmethod
+    def normalize_content(cls, content: str | None) -> str | None:
+        if content is None:
+            return None
+        normalized = content.strip()
+        if not normalized:
+            raise ValueError("memory content must not be empty")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_at_least_one_change(self) -> MemoryUpdateRequest:
+        changed = self.model_fields_set - {"id"}
+        if not changed:
+            raise ValueError("at least one memory field must be provided")
+        if "content" in self.model_fields_set and self.content is None:
+            raise ValueError("memory content must not be null")
+        return self
+
+    def to_patch(self) -> dict[str, object]:
+        """Return only explicitly supplied mutable fields."""
+        patch = self.model_dump(exclude_unset=True)
+        patch.pop("id", None)
+        return patch
+
+
 class MemoryListResponse(BaseModel):
     """长期记忆列表响应。"""
 
     items: list[MemorySummary]
     total: int
     next_cursor: str | None = None
+
+
+class MemoryBatchDeleteRequest(BaseModel):
+    """Delete up to 100 long-term memories in one request."""
+
+    ids: list[int] = Field(min_length=1, max_length=100)
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, ids: list[int]) -> list[int]:
+        if any(memory_id <= 0 for memory_id in ids):
+            raise ValueError("memory ids must be positive")
+        if len(set(ids)) != len(ids):
+            raise ValueError("memory ids must be unique")
+        return ids
+
+
+class MemoryBatchDeleteResponse(BaseModel):
+    """Outcome of a tenant-scoped long-term-memory batch deletion."""
+
+    requested: int
+    deleted: int
+    missing_ids: list[int] = Field(default_factory=list)
+
+
+class MemoryBatchUpdateItem(MemoryUpdateRequest):
+    """One memory patch in a tenant-scoped batch update."""
+
+    id: int = Field(gt=0)
+
+
+class MemoryBatchUpdateRequest(BaseModel):
+    """Update up to 100 long-term memories in one request."""
+
+    updates: list[MemoryBatchUpdateItem] = Field(min_length=1, max_length=100)
+
+    @field_validator("updates")
+    @classmethod
+    def validate_unique_ids(
+        cls, updates: list[MemoryBatchUpdateItem]
+    ) -> list[MemoryBatchUpdateItem]:
+        ids = [item.id for item in updates]
+        if len(set(ids)) != len(ids):
+            raise ValueError("memory ids must be unique")
+        return updates
+
+
+class MemoryBatchUpdateResponse(BaseModel):
+    """Outcome of a tenant-scoped long-term-memory batch update."""
+
+    requested: int
+    updated: int
+    items: list[MemorySummary]
+    missing_ids: list[int] = Field(default_factory=list)
 
 
 class SessionSummary(BaseModel):
@@ -404,6 +579,29 @@ class ApiKeyCreateRequest(BaseModel):
     permissions: list[str] | None = Field(default=None, max_length=32)
 
 
+class ApiKeyBatchRevokeRequest(BaseModel):
+    """Revoke up to 100 API keys in one request."""
+
+    ids: list[int] = Field(min_length=1, max_length=100)
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, ids: list[int]) -> list[int]:
+        if any(key_id <= 0 for key_id in ids):
+            raise ValueError("api key ids must be positive")
+        if len(set(ids)) != len(ids):
+            raise ValueError("api key ids must be unique")
+        return ids
+
+
+class ApiKeyBatchRevokeResponse(BaseModel):
+    """Outcome of a workspace-scoped API key batch revocation."""
+
+    requested: int
+    revoked: int
+    missing_ids: list[int] = Field(default_factory=list)
+
+
 class ApiKeySummary(BaseModel):
     """API Key 记录摘要（绝不包含明文与哈希）。"""
 
@@ -439,10 +637,11 @@ class ApiKeyCreateResponse(ApiKeySummary):
 
 
 class ApiKeyListResponse(BaseModel):
-    """API Key 列表响应。"""
+    """API Key 列表响应；``total`` 是过滤后的总数，不是本页数量。"""
 
     items: list[ApiKeySummary]
     total: int
+    next_cursor: str | None = None
 
 
 class DashboardOverviewResponse(BaseModel):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,12 @@ from fastapi.testclient import TestClient
 from agentos.api.app import create_app
 from agentos.core.config import AuditSettings, Settings
 from agentos.core.context import bind
+from agentos.core.pagination import (
+    KeysetCursor,
+    PaginationCursor,
+    encode_cursor,
+    encode_keyset_cursor,
+)
 from agentos.runtime.audit import (
     ACTION_AGENT_REGISTER,
     ACTION_AGENT_RUN,
@@ -18,6 +25,8 @@ from agentos.runtime.audit import (
     AuditLog,
 )
 from agentos.runtime.repositories import AuditStatus
+
+AUDIT_TIME = datetime(2026, 10, 25, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -162,6 +171,26 @@ def test_pagination(audit: AuditLog) -> None:
     assert audit.count() == 5
 
 
+def test_cursor_resumes_after_the_last_seen_entry(audit: AuditLog) -> None:
+    for index in range(5):
+        audit.record(ACTION_AGENT_RUN, target=f"a{index}")
+
+    first = audit.list(limit=2)
+    last = first[-1]
+    assert last.id is not None
+    second = audit.list(
+        limit=2,
+        cursor=PaginationCursor(
+            created_at=last.created_at,
+            item_id=str(last.id),
+            order="desc",
+        ),
+    )
+
+    assert [entry.target for entry in first] == ["a4", "a3"]
+    assert [entry.target for entry in second] == ["a2", "a1"]
+
+
 # --- 持久化 ---------------------------------------------------------------
 
 
@@ -187,6 +216,12 @@ def _app(tmp_path: Path, *, audit_enabled: bool = True) -> object:
             registry={"persist": False},
         )
     )
+
+
+def _audit_page(client: TestClient, **params: object):
+    response = client.get("/api/v1/audit", params=params)
+    assert response.status_code == 200, response.text
+    return response
 
 
 def test_agent_register_and_unregister_are_audited(tmp_path: Path) -> None:
@@ -234,6 +269,100 @@ def test_audit_route_supports_filters(tmp_path: Path) -> None:
         assert len(client.get("/api/v1/audit?action=agent.run").json()) == 1
         assert len(client.get("/api/v1/audit?order=asc").json()) >= 2
         assert client.get("/api/v1/audit?order=bad").status_code == 422
+
+
+def test_audit_route_walks_all_pages_without_changing_the_array_response(
+    tmp_path: Path,
+) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        for index in range(5):
+            client.post("/api/v1/agents", json={"name": f"a{index}"})
+
+        first = _audit_page(client, limit=2)
+        second = _audit_page(client, limit=2, cursor=first.headers["x-next-cursor"])
+        third = _audit_page(client, limit=2, cursor=second.headers["x-next-cursor"])
+
+    pages = [first.json(), second.json(), third.json()]
+    ids = [entry["id"] for page in pages for entry in page]
+    assert all(isinstance(page, list) for page in pages)
+    assert len(ids) == len(set(ids)) == 5
+    assert len(pages[2]) == 1
+    assert "x-next-cursor" not in third.headers
+
+
+def test_audit_cursor_is_stable_when_a_new_entry_arrives(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        for name in ("a", "b", "c"):
+            client.post("/api/v1/agents", json={"name": name})
+        first = _audit_page(client, limit=2)
+
+        client.post("/api/v1/agents", json={"name": "d"})
+        second = _audit_page(client, limit=2, cursor=first.headers["x-next-cursor"])
+
+    first_ids = {entry["id"] for entry in first.json()}
+    second_ids = {entry["id"] for entry in second.json()}
+    assert first_ids.isdisjoint(second_ids)
+    assert len(first_ids | second_ids) == 3
+
+
+def test_audit_route_supports_ascending_cursor_pagination(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        for name in ("a", "b", "c"):
+            client.post("/api/v1/agents", json={"name": name})
+
+        first = _audit_page(client, limit=2, order="asc")
+        second = _audit_page(
+            client,
+            limit=2,
+            order="asc",
+            cursor=first.headers["x-next-cursor"],
+        )
+
+    assert [entry["id"] for entry in first.json()] == sorted(
+        entry["id"] for entry in first.json()
+    )
+    assert second.json()[0]["id"] > first.json()[-1]["id"]
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "not-a-cursor",
+        encode_keyset_cursor(KeysetCursor(key="1", item_id="1")),
+        encode_cursor(
+            PaginationCursor(
+                created_at=AUDIT_TIME,
+                item_id="1",
+                order="asc",
+            )
+        ),
+    ],
+)
+def test_audit_route_rejects_foreign_or_incompatible_cursors(
+    tmp_path: Path, token: str
+) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        response = client.get("/api/v1/audit", params={"cursor": token})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_audit_route_rejects_cursor_with_non_zero_offset(tmp_path: Path) -> None:
+    token = encode_cursor(
+        PaginationCursor(
+            created_at=AUDIT_TIME,
+            item_id="1",
+            order="desc",
+        )
+    )
+    with TestClient(_app(tmp_path)) as client:
+        response = client.get(
+            "/api/v1/audit", params={"cursor": token, "offset": 1}
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_audit_route_404_when_disabled(tmp_path: Path) -> None:

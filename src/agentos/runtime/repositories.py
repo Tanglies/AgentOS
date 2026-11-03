@@ -545,6 +545,65 @@ class AgentRepository(Repository):
             }
         )
 
+    def update_many(
+        self,
+        patches: Sequence[tuple[str, dict[str, Any]]],
+        *,
+        updated_at: datetime,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+    ) -> list[AgentRecord]:
+        """Apply patches to visible Agents atomically and return updated records.
+
+        Omitted Agent fields keep their stored values. Rows and patches are matched
+        by Workspace and name, so a caller cannot update another tenant's Agent even
+        when it knows the name.
+        """
+        if not patches:
+            return []
+        requested_names = [name for name, _ in patches]
+        placeholders = ", ".join("?" for _ in requested_names)
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM agents WHERE workspace_id = ? "
+                f"AND name IN ({placeholders})",
+                (workspace_id, *requested_names),
+            ).fetchall()
+            existing = {str(row["name"]): row for row in rows}
+            updated_rows = []
+            stamp = updated_at.isoformat()
+            for name, patch in patches:
+                row = existing.get(name)
+                if row is None:
+                    continue
+                current = self._decode(row)
+                merged = Agent(**{**current.model_dump(), **patch})
+                conn.execute(
+                    "UPDATE agents SET description = ?, system_prompt = ?, "
+                    "model = ?, temperature = ?, max_iterations = ?, tools = ?, "
+                    "metadata = ?, payload = ?, updated_at = ? "
+                    "WHERE workspace_id = ? AND name = ?",
+                    (
+                        merged.description,
+                        merged.system_prompt,
+                        merged.model,
+                        merged.temperature,
+                        merged.max_iterations,
+                        json.dumps(merged.tools, ensure_ascii=False),
+                        json.dumps(merged.metadata, ensure_ascii=False),
+                        merged.model_dump_json(),
+                        stamp,
+                        workspace_id,
+                        name,
+                    ),
+                )
+                updated = conn.execute(
+                    "SELECT * FROM agents WHERE workspace_id = ? AND name = ?",
+                    (workspace_id, name),
+                ).fetchone()
+                if updated is not None:
+                    updated_rows.append(self._to_record(updated))
+        return updated_rows
+
     def remove(self, name: str, *, workspace_id: int = DEFAULT_WORKSPACE_ID) -> bool:
         return (
             self._db.execute(
@@ -553,6 +612,33 @@ class AgentRepository(Repository):
             )
             > 0
         )
+
+    def remove_many(
+        self,
+        names: Sequence[str],
+        *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+    ) -> list[str]:
+        """Delete visible Agents by name and return the names that were removed."""
+        unique_names = list(dict.fromkeys(names))
+        if not unique_names:
+            return []
+        placeholders = ", ".join("?" for _ in unique_names)
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                f"SELECT name FROM agents WHERE workspace_id = ? "
+                f"AND name IN ({placeholders}) ORDER BY name",
+                (workspace_id, *unique_names),
+            ).fetchall()
+            removed_names = [str(row["name"]) for row in rows]
+            if removed_names:
+                removed_placeholders = ", ".join("?" for _ in removed_names)
+                conn.execute(
+                    f"DELETE FROM agents WHERE workspace_id = ? "
+                    f"AND name IN ({removed_placeholders})",
+                    (workspace_id, *removed_names),
+                )
+        return removed_names
 
     def get_record(
         self, name: str, *, workspace_id: int = DEFAULT_WORKSPACE_ID
@@ -968,6 +1054,63 @@ class MemoryRepository(Repository):
             created_at=created_at,
         )
 
+    def update_many(
+        self,
+        patches: Sequence[tuple[int, dict[str, Any]]],
+        *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+    ) -> list[MemoryRecord]:
+        """Apply visible memory patches atomically and return updated records.
+
+        Omitted fields keep their stored values. Selection and updates run in one
+        transaction, and tenant visibility is checked both when loading and writing.
+        """
+        if not patches:
+            return []
+        memory_ids = [memory_id for memory_id, _ in patches]
+        placeholders = ", ".join("?" for _ in memory_ids)
+        visibility, visibility_params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=None
+        )
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM memories WHERE id IN ({placeholders}) "
+                f"AND {visibility}",
+                (*memory_ids, *visibility_params),
+            ).fetchall()
+            existing = {int(row["id"]): self._to_record(row) for row in rows}
+            updated_rows: list[MemoryRecord] = []
+            for memory_id, patch in patches:
+                current = existing.get(memory_id)
+                if current is None:
+                    continue
+                unknown_fields = set(patch) - {"content", "session_id"}
+                if unknown_fields:
+                    raise ValueError(
+                        f"unsupported memory fields: {sorted(unknown_fields)}"
+                    )
+                merged = MemoryRecord(**{**current.model_dump(), **patch})
+                if not merged.content.strip():
+                    raise ValueError("memory content must not be empty")
+                conn.execute(
+                    "UPDATE memories SET content = ?, session_id = ? "
+                    f"WHERE id = ? AND {visibility}",
+                    (
+                        merged.content,
+                        merged.session_id,
+                        memory_id,
+                        *visibility_params,
+                    ),
+                )
+                updated = conn.execute(
+                    f"SELECT * FROM memories WHERE id = ? AND {visibility}",
+                    (memory_id, *visibility_params),
+                ).fetchone()
+                if updated is not None:
+                    updated_rows.append(self._to_record(updated))
+        return updated_rows
+
     def get(
         self,
         memory_id: int,
@@ -1098,6 +1241,41 @@ class MemoryRepository(Repository):
             (memory_id, *params),
         ) > 0
 
+    def remove_many(
+        self,
+        memory_ids: Sequence[int],
+        *,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+        user_id: int | None = None,
+    ) -> list[int]:
+        """Delete visible memories by id and return the ids that were removed.
+
+        Selection and deletion run in one transaction so callers never receive a
+        success list assembled from rows that were not actually removed.
+        """
+        ids = list(dict.fromkeys(memory_ids))
+        if not ids:
+            return []
+        visibility, params = self._visibility_clause(
+            workspace_id=workspace_id, user_id=user_id, scope=None
+        )
+        placeholders = ", ".join("?" for _ in ids)
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                f"SELECT id FROM memories WHERE id IN ({placeholders}) "
+                f"AND {visibility} ORDER BY id",
+                (*ids, *params),
+            ).fetchall()
+            removed_ids = [int(row["id"]) for row in rows]
+            if removed_ids:
+                removed_placeholders = ", ".join("?" for _ in removed_ids)
+                conn.execute(
+                    f"DELETE FROM memories WHERE id IN ({removed_placeholders}) "
+                    f"AND {visibility}",
+                    (*removed_ids, *params),
+                )
+        return removed_ids
+
     def clear(
         self,
         *,
@@ -1197,7 +1375,9 @@ class AuditRepository(Repository):
         order: str = "desc",
         limit: int = 50,
         offset: int = 0,
+        cursor: PaginationCursor | None = None,
     ) -> list[AuditEntry]:
+        """按条件查询审计记录，可用时间与 id 游标稳定翻页。"""
         where, params = _build_filter(
             [
                 ("workspace_id = ?", workspace_id),
@@ -1208,6 +1388,19 @@ class AuditRepository(Repository):
             ]
         )
         direction = "ASC" if str(order).lower() == "asc" else "DESC"
+        if cursor is not None:
+            operator = ">" if direction == "ASC" else "<"
+            cursor_clause = (
+                f"(created_at {operator} ? OR "
+                f"(created_at = ? AND id {operator} ?))"
+            )
+            where = f"{where} AND {cursor_clause}" if where else f"WHERE {cursor_clause}"
+            params = (
+                *params,
+                cursor.created_at.isoformat(),
+                cursor.created_at.isoformat(),
+                int(cursor.item_id),
+            )
         rows = self._db.query(
             f"SELECT * FROM audit_logs {where} "
             f"ORDER BY created_at {direction}, id {direction} LIMIT ? OFFSET ?",
@@ -1340,7 +1533,10 @@ class ApiKeyRepository(Repository):
         *,
         include_revoked: bool = False,
         workspace_id: int | None = None,
+        limit: int | None = None,
+        after_id: int | None = None,
     ) -> list[ApiKeyRecord]:
+        """按 id 升序列出密钥，可选地只取游标之后的一页。"""
         clauses = []
         params: list[Any] = []
         if not include_revoked:
@@ -1348,9 +1544,16 @@ class ApiKeyRepository(Repository):
         if workspace_id is not None:
             clauses.append("workspace_id = ?")
             params.append(workspace_id)
+        if after_id is not None:
+            clauses.append("id > ?")
+            params.append(after_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        suffix = ""
+        if limit is not None:
+            suffix = " LIMIT ?"
+            params.append(limit)
         rows = self._db.query(
-            f"SELECT * FROM api_keys {where} ORDER BY id", params
+            f"SELECT * FROM api_keys {where} ORDER BY id{suffix}", params
         )
         return [self._to_record(row) for row in rows]
 
@@ -1377,6 +1580,35 @@ class ApiKeyRepository(Repository):
         return self._db.execute(
             f"UPDATE api_keys SET revoked_at = ? WHERE {where}", params
         ) > 0
+
+    def revoke_many(
+        self,
+        key_ids: Sequence[int],
+        *,
+        revoked_at: datetime,
+        workspace_id: int = DEFAULT_WORKSPACE_ID,
+    ) -> list[int]:
+        """Revoke visible active keys and return the ids that were revoked."""
+        ids = list(dict.fromkeys(key_ids))
+        if not ids:
+            return []
+        placeholders = ", ".join("?" for _ in ids)
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                f"SELECT id FROM api_keys WHERE id IN ({placeholders}) "
+                "AND workspace_id = ? AND revoked_at IS NULL ORDER BY id",
+                (*ids, workspace_id),
+            ).fetchall()
+            revoked_ids = [int(row["id"]) for row in rows]
+            if revoked_ids:
+                revoked_placeholders = ", ".join("?" for _ in revoked_ids)
+                conn.execute(
+                    f"UPDATE api_keys SET revoked_at = ? "
+                    f"WHERE id IN ({revoked_placeholders}) "
+                    "AND workspace_id = ? AND revoked_at IS NULL",
+                    (revoked_at.isoformat(), *revoked_ids, workspace_id),
+                )
+        return revoked_ids
 
     def count(
         self, *, include_revoked: bool = False, workspace_id: int | None = None

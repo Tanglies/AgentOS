@@ -28,7 +28,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
 ## 阶段 2：平台能力
 
 - [x] Agent 持久化（`SQLiteAgentRegistry`，**默认开启**；结构化字段 + payload 兼容）
-- [x] Agent 生命周期管理（`AgentService`；创建、分页列表、详情、删除）
+- [x] Agent 生命周期管理（`AgentService`；创建、单条/批量更新、分页列表、详情、删除）
 - [x] Agent 管理 API（`GET/POST/DELETE /api/v1/agents`，支持 `page/page_size`）
 - [x] 运行记录持久化与历史查询（`RunStore` + `GET /api/v1/runs`，含过滤、双分页兼容、排序与 `token_usage`）
 - [x] Dashboard 只读接口（`overview` / `tools` / `errors`，数据复用 runs / audit / registry）
@@ -48,8 +48,13 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [x] Agent 列表：`page/page_size` 与按名称的 keyset `cursor` 分页
   - [x] Run History：`page/page_size`、旧 `limit/offset` 与稳定 keyset `cursor` 分页
   - [x] Memory 列表：按创建时间和 ID 的稳定 keyset `cursor` 分页
-  - [ ] 将 cursor 分页推广到 Audit / API Key 列表
-  - [ ] 批量操作（批量删除 / 批量更新）
+  - [x] API Key 列表：按记录 id 的稳定 keyset `cursor` 分页
+  - [x] Audit 列表：保留 JSON 数组响应，通过 `X-Next-Cursor` 返回稳定游标
+  - [x] Memory 批量删除：单次最多 100 条，按 Workspace/user 可见性隔离
+  - [x] API Key 批量吊销：单次最多 100 条，事务内按 Workspace 隔离软删除
+  - [x] Agent 批量删除：单次最多 100 条，事务内按 Workspace 隔离并审计
+  - [x] Agent 批量更新：单次最多 100 条，事务内按 Workspace 隔离并逐项审计
+  - [ ] 其他资源批量更新与删除
 - [x] 数据模型与迁移机制
   - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）
   - [x] schema 版本表与增量迁移基础（`database/migrations/`，支持按版本幂等执行）

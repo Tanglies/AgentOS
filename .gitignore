@@ -223,6 +223,9 @@ __marimo__/
 *-apiKey-*.*
 secrets/
 
+# pytest temporary files and cache, including sandboxed automation runs
+.pytest_tmp/
+
 # AgentOS 运行时数据（长期记忆数据库等）
 # 由本地运行时生成，不应提交
 .agentos/

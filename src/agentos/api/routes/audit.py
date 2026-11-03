@@ -8,10 +8,17 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from agentos.api.deps import RuntimeDep, require
-from agentos.core.exceptions import NotFoundError
+from agentos.core.exceptions import NotFoundError, ValidationError
+from agentos.core.pagination import (
+    PaginationCursor,
+    decode_cursor,
+    encode_cursor,
+    ensure_cursor_order,
+    ensure_cursor_row_id,
+)
 from agentos.runtime.api_keys import Permission
 from agentos.runtime.repositories import AuditEntry, AuditStatus
 
@@ -36,22 +43,50 @@ def _require_audit(runtime: RuntimeDep):
 )
 async def list_audit(
     runtime: RuntimeDep,
+    response: Response,
     action: Annotated[str | None, Query(description="按动作过滤，如 agent.run")] = None,
     actor: Annotated[str | None, Query(description="按调用方密钥指纹过滤")] = None,
     run_id: Annotated[str | None, Query(description="按运行 ID 过滤")] = None,
     status: Annotated[AuditStatus | None, Query(description="按结果过滤")] = None,
     order: Annotated[str, Query(pattern="^(asc|desc)$", description="按时间排序")] = "desc",
+    cursor: Annotated[str | None, Query(description="上一页返回的 X-Next-Cursor")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[AuditEntry]:
-    """按条件返回审计记录，默认最新在前。"""
+    """按条件返回审计记录；更多结果通过 ``X-Next-Cursor`` 续页。"""
     audit = _require_audit(runtime)
-    return audit.list(
+    if cursor and offset:
+        raise ValidationError(
+            "cursor cannot be combined with a non-zero offset",
+            details={"parameter": "cursor"},
+        )
+    position = decode_cursor(cursor) if cursor else None
+    if position is not None:
+        ensure_cursor_order(position.order, order)
+        position = PaginationCursor(
+            created_at=position.created_at,
+            item_id=str(ensure_cursor_row_id(position.item_id)),
+            order=order,
+        )
+    records = audit.list(
         action=action,
         actor=actor,
         run_id=run_id,
         status=status,
         order=order,
-        limit=limit,
+        limit=limit + 1,
         offset=offset,
+        cursor=position,
     )
+    if len(records) > limit:
+        last = records[limit - 1]
+        if last.id is not None:
+            response.headers["X-Next-Cursor"] = encode_cursor(
+                PaginationCursor(
+                    created_at=last.created_at,
+                    item_id=str(last.id),
+                    order=order,
+                )
+            )
+        records = records[:limit]
+    return records

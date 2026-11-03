@@ -52,6 +52,7 @@ agentos = ["py.typed"]
 minversion = "8.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+cache_dir = ".pytest_cache"
 addopts = "-q"
 
 [tool.ruff]

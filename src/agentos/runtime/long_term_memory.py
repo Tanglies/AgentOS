@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from math import ceil
 from pathlib import Path
@@ -175,6 +176,30 @@ class LongTermMemory:
             scope=MemoryScope(scope) if scope is not None else None,
         )
 
+    def update_many(
+        self,
+        updates: Sequence[tuple[int, dict[str, object]]],
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> list[MemoryRecord]:
+        """Update visible memories atomically while preserving omitted fields."""
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
+        normalized: list[tuple[int, dict[str, object]]] = []
+        for memory_id, patch in updates:
+            next_patch = dict(patch)
+            if "content" in next_patch:
+                content = str(next_patch["content"]).strip()[:MAX_CONTENT_CHARS]
+                if not content:
+                    raise ValueError("memory content must not be empty")
+                next_patch["content"] = content
+            normalized.append((memory_id, next_patch))
+        return self._repo.update_many(
+            normalized,
+            workspace_id=resolved_workspace,
+            user_id=resolved_user,
+        )
+
     def build_context(
         self,
         query: str,
@@ -271,6 +296,21 @@ class LongTermMemory:
         resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
         return self._repo.remove(
             memory_id,
+            workspace_id=resolved_workspace,
+            user_id=resolved_user,
+        )
+
+    def forget_many(
+        self,
+        memory_ids: list[int],
+        *,
+        workspace_id: int | None = None,
+        user_id: int | None = None,
+    ) -> list[int]:
+        """Delete several visible memories and return the removed ids."""
+        resolved_workspace, resolved_user = self._scope_ids(workspace_id, user_id)
+        return self._repo.remove_many(
+            memory_ids,
             workspace_id=resolved_workspace,
             user_id=resolved_user,
         )
