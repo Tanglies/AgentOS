@@ -3,6 +3,36 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-11-04
+
+### 新增
+
+- 平台用户列表新增按数据库自增 `id` 升序的稳定 keyset `cursor` 分页，
+  响应通过 `next_cursor` 返回下一页位置
+
+### 修改
+
+- `UserRepository.list` 与 `UserService.list` 支持 `after_id` 继续查询，
+  同时保留原有 `page/page_size` 页码分页
+- README、Workspace 文档与 TODO 同步用户目录分页语义和使用示例
+
+### 修复
+
+- 用户增长导致 offset 翻页位置漂移时，cursor 分页不再重复或跳过已读用户
+
+### 技术记录
+
+- 游标复用现有 `KeysetCursor`，要求排序键与记录 id 一致且方向固定为升序；
+  损坏、跨列表或方向不一致的游标返回 `422 validation_error`
+- 每页多取一条判断是否存在下一页；新增 7 个 API 测试，覆盖并发新增后的
+  稳定翻页、页码兼容、参数互斥与非法游标拒绝；完整测试套件 726 项通过，
+  `ruff check .` 通过
+
+### 下一步计划
+
+- 继续评估 Workspace/成员等平台目录的分页边界
+- 推进用户名/密码登录设计，拆分密码哈希、会话令牌与安全审计的独立小任务
+
 ## 2026-11-03
 
 ### 新增

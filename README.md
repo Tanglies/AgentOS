@@ -312,6 +312,14 @@ curl "http://127.0.0.1:8000/api/v1/agents?page_size=20"
 curl "http://127.0.0.1:8000/api/v1/agents?page_size=20&cursor=<next_cursor>"
 ```
 
+The platform user directory keeps `page/page_size` and also returns a stable
+id-keyed cursor, so operator pagination remains consistent while users are added:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/users?page_size=100"
+curl "http://127.0.0.1:8000/api/v1/users?page_size=100&cursor=<next_cursor>"
+```
+
 Partially update one Agent without replacing omitted fields:
 
 ```bash

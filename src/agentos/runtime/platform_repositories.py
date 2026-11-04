@@ -163,10 +163,24 @@ class UserRepository(Repository):
         row = self._db.query_one("SELECT * FROM users WHERE username = ?", (username,))
         return self._to_record(row) if row is not None else None
 
-    def list(self, *, limit: int = 100, offset: int = 0) -> list[UserRecord]:
-        rows = self._db.query(
-            "SELECT * FROM users ORDER BY id LIMIT ? OFFSET ?", (limit, offset)
-        )
+    def list(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        after_id: int | None = None,
+    ) -> list[UserRecord]:
+        """List users by id, optionally resuming after a keyset position."""
+        if after_id is None:
+            rows = self._db.query(
+                "SELECT * FROM users ORDER BY id LIMIT ? OFFSET ?",
+                (limit, offset),
+            )
+        else:
+            rows = self._db.query(
+                "SELECT * FROM users WHERE id > ? ORDER BY id LIMIT ?",
+                (after_id, limit),
+            )
         return [self._to_record(row) for row in rows]
 
     def count(self) -> int:

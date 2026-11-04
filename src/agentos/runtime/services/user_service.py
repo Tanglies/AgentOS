@@ -5,6 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from agentos.core.exceptions import ConflictError, NotFoundError, ValidationError
+from agentos.core.pagination import (
+    KeysetCursor,
+    encode_keyset_cursor,
+    ensure_cursor_order,
+    ensure_cursor_row_id,
+)
 from agentos.runtime.platform_repositories import (
     UserRecord,
     UserRepository,
@@ -49,8 +55,41 @@ class UserService:
             raise NotFoundError(f"user not found: {user_id}", details={"user_id": user_id})
         return user
 
-    def list(self, *, limit: int = 100, offset: int = 0) -> tuple[list[UserRecord], int]:
-        return self._users.list(limit=limit, offset=offset), self._users.count()
+    def list(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        cursor: KeysetCursor | None = None,
+    ) -> tuple[list[UserRecord], int, str | None]:
+        """Return a page of users and an id-based cursor when more rows exist."""
+        after_id = None
+        if cursor is not None:
+            ensure_cursor_order(cursor.order, "asc")
+            key_id = ensure_cursor_row_id(cursor.key)
+            item_id = ensure_cursor_row_id(cursor.item_id)
+            if key_id != item_id:
+                raise ValidationError(
+                    "invalid pagination cursor",
+                    details={"parameter": "cursor"},
+                )
+            after_id = item_id
+
+        offset = 0 if cursor is not None else (page - 1) * page_size
+        records = self._users.list(
+            limit=page_size + 1,
+            offset=offset,
+            after_id=after_id,
+        )
+        next_cursor = None
+        if len(records) > page_size:
+            last = records[page_size - 1]
+            if last.id is None:  # pragma: no cover - persisted users always have ids
+                raise RuntimeError("user persistence returned no id")
+            next_cursor = encode_keyset_cursor(
+                KeysetCursor(key=str(last.id), item_id=str(last.id), order="asc")
+            )
+        return records[:page_size], self._users.count(), next_cursor
 
     def update(
         self,

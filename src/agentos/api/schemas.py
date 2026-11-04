@@ -709,12 +709,13 @@ class UserSummary(BaseModel):
 
 
 class UserListResponse(BaseModel):
-    """Paginated user list."""
+    """Paginated user list with optional stable cursor metadata."""
 
     items: list[UserSummary]
     total: int
     page: int = 1
     page_size: int = 100
+    next_cursor: str | None = None
 
 
 class WorkspaceCreateRequest(BaseModel):
