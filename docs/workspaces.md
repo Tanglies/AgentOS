@@ -13,6 +13,18 @@
 | POST | `/api/v1/workspaces/{id}/members` | 添加成员 |
 | DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
 
+Workspace 目录保留 `page` / `page_size` 页码分页，同时在响应中返回
+`next_cursor`。游标按 Workspace 自增 `id` 升序定位，默认每页最多 100 条；
+翻页期间新增 Workspace 不会让后续页面重复或偏移：
+
+```http
+GET /api/v1/workspaces?page_size=100
+GET /api/v1/workspaces?page_size=100&cursor=eyJ2IjoyLCJrZXkiOiI0MiJ9
+```
+
+`cursor` 不能与 `page` 同时使用；损坏游标、跨列表游标或排序方向不一致的游标
+返回 `422 validation_error`。`total` 表示当前用户可见的 Workspace 总数。
+
 创建示例：
 
 ```powershell

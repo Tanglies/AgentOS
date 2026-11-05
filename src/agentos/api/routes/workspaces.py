@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Query, Response, status
 
 from agentos.api.deps import UserServiceDep, WorkspaceServiceDep, require
 from agentos.api.schemas import (
@@ -15,6 +15,8 @@ from agentos.api.schemas import (
     WorkspaceUpdateRequest,
 )
 from agentos.core.context import get_user_id
+from agentos.core.exceptions import ValidationError
+from agentos.core.pagination import decode_keyset_cursor
 from agentos.core.tenancy import DEFAULT_USER_ID
 from agentos.runtime.api_keys import Permission
 
@@ -47,9 +49,33 @@ async def create_workspace(
     summary="列出当前用户的 Workspace",
     dependencies=[require(Permission.WORKSPACE_READ)],
 )
-async def list_workspaces(service: WorkspaceServiceDep) -> WorkspaceListResponse:
+async def list_workspaces(
+    service: WorkspaceServiceDep,
+    page: int | None = Query(default=None, ge=1, description="页码，从 1 开始"),
+    page_size: int | None = Query(
+        default=None,
+        ge=1,
+        le=500,
+        description="每页数量",
+    ),
+    cursor: str | None = Query(default=None, description="上一页返回的 next_cursor"),
+) -> WorkspaceListResponse:
+    """按 Workspace id 返回稳定游标分页，同时保留 page/page_size。"""
+    if cursor and page is not None:
+        raise ValidationError(
+            "cursor cannot be combined with page",
+            details={"parameter": "cursor"},
+        )
     user_id = _current_user_id()
-    workspaces = service.list(user_id)
+    resolved_page = 1 if cursor else (page or 1)
+    resolved_page_size = page_size or 100
+    position = decode_keyset_cursor(cursor) if cursor else None
+    workspaces, total, next_cursor = service.list(
+        user_id,
+        page=resolved_page,
+        page_size=resolved_page_size,
+        cursor=position,
+    )
     return WorkspaceListResponse(
         items=[
             WorkspaceSummary.from_record(
@@ -57,7 +83,10 @@ async def list_workspaces(service: WorkspaceServiceDep) -> WorkspaceListResponse
             )
             for workspace in workspaces
         ],
-        total=len(workspaces),
+        total=total,
+        page=resolved_page,
+        page_size=resolved_page_size,
+        next_cursor=next_cursor,
     )
 
 

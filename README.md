@@ -320,6 +320,14 @@ curl "http://127.0.0.1:8000/api/v1/users?page_size=100"
 curl "http://127.0.0.1:8000/api/v1/users?page_size=100&cursor=<next_cursor>"
 ```
 
+The current user's Workspace directory uses the same stable id-keyed cursor and
+defaults to at most 100 entries per page:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/workspaces?page_size=100"
+curl "http://127.0.0.1:8000/api/v1/workspaces?page_size=100&cursor=<next_cursor>"
+```
+
 Partially update one Agent without replacing omitted fields:
 
 ```bash

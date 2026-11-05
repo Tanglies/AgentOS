@@ -3,6 +3,35 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-11-05
+
+### 新增
+
+- Workspace 目录新增按数据库自增 `id` 升序的稳定 keyset `cursor` 分页，
+  响应通过 `next_cursor` 返回下一页位置，默认每页最多 100 条
+
+### 修改
+
+- `WorkspaceRepository.list_for_user` 与 `WorkspaceService.list` 支持游标和页码
+  分页，`total` 使用当前用户可见的 Workspace 总数
+- README、Workspace 文档与 TODO 同步 Workspace 分页语义和使用示例
+
+### 修复
+
+- Workspace 新增后遍历目录时，后续页面不再因偏移量变化而重复或跳过记录
+
+### 技术记录
+
+- 游标复用现有 `KeysetCursor`，要求排序键与记录 id 一致且方向固定为升序；
+  损坏、跨列表或方向不一致的游标返回 `422 validation_error`
+- 每页多取一条判断是否存在下一页；新增 7 个参数化或独立 API 测试，覆盖并发新增、
+  页码兼容、参数互斥与非法游标拒绝；完整测试套件 733 项通过，
+  `ruff check .` 通过
+
+### 下一步计划
+
+- 评估 Workspace 成员目录的分页边界，并继续拆分用户名/密码登录所需的独立小任务
+
 ## 2026-11-04
 
 ### 新增

@@ -249,14 +249,40 @@ class WorkspaceRepository(Repository):
         row = self._db.query_one("SELECT * FROM workspaces WHERE name = ?", (name,))
         return self._to_record(row) if row is not None else None
 
-    def list_for_user(self, user_id: int) -> list[WorkspaceRecord]:
-        rows = self._db.query(
-            "SELECT w.* FROM workspaces w "
+    def list_for_user(
+        self,
+        user_id: int,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        after_id: int | None = None,
+    ) -> list[WorkspaceRecord]:
+        """List one user's Workspaces by id, optionally resuming with a keyset."""
+        if after_id is None:
+            rows = self._db.query(
+                "SELECT w.* FROM workspaces w "
+                "JOIN workspace_members m ON m.workspace_id = w.id "
+                "WHERE m.user_id = ? ORDER BY w.id LIMIT ? OFFSET ?",
+                (user_id, limit, offset),
+            )
+        else:
+            rows = self._db.query(
+                "SELECT w.* FROM workspaces w "
+                "JOIN workspace_members m ON m.workspace_id = w.id "
+                "WHERE m.user_id = ? AND w.id > ? ORDER BY w.id LIMIT ?",
+                (user_id, after_id, limit),
+            )
+        return [self._to_record(row) for row in rows]
+
+    def count_for_user(self, user_id: int) -> int:
+        """Count Workspaces visible to one user."""
+        row = self._db.query_one(
+            "SELECT COUNT(*) AS total FROM workspaces w "
             "JOIN workspace_members m ON m.workspace_id = w.id "
-            "WHERE m.user_id = ? ORDER BY w.name",
+            "WHERE m.user_id = ?",
             (user_id,),
         )
-        return [self._to_record(row) for row in rows]
+        return int(row["total"]) if row is not None else 0
 
     def update(self, workspace_id: int, *, name: str, updated_at: datetime) -> bool:
         return self._db.execute(

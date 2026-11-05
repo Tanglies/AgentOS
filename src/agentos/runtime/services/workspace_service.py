@@ -10,6 +10,12 @@ from agentos.core.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
+from agentos.core.pagination import (
+    KeysetCursor,
+    encode_keyset_cursor,
+    ensure_cursor_order,
+    ensure_cursor_row_id,
+)
 from agentos.runtime.audit import (
     ACTION_WORKSPACE_CREATE,
     ACTION_WORKSPACE_DELETE,
@@ -96,8 +102,47 @@ class WorkspaceService:
             )
         return workspace
 
-    def list(self, user_id: int) -> list[WorkspaceRecord]:
-        return self._workspaces.list_for_user(user_id)
+    def list(
+        self,
+        user_id: int,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        cursor: KeysetCursor | None = None,
+    ) -> tuple[list[WorkspaceRecord], int, str | None]:
+        """Return the user's Workspace directory and an id cursor when more exist."""
+        after_id = None
+        if cursor is not None:
+            ensure_cursor_order(cursor.order, "asc")
+            key_id = ensure_cursor_row_id(cursor.key)
+            item_id = ensure_cursor_row_id(cursor.item_id)
+            if key_id != item_id:
+                raise ValidationError(
+                    "invalid pagination cursor",
+                    details={"parameter": "cursor"},
+                )
+            after_id = item_id
+
+        offset = 0 if cursor is not None else (page - 1) * page_size
+        records = self._workspaces.list_for_user(
+            user_id,
+            limit=page_size + 1,
+            offset=offset,
+            after_id=after_id,
+        )
+        next_cursor = None
+        if len(records) > page_size:
+            last = records[page_size - 1]
+            if last.id is None:  # pragma: no cover - persisted rows always have ids
+                raise RuntimeError("workspace persistence returned no id")
+            next_cursor = encode_keyset_cursor(
+                KeysetCursor(key=str(last.id), item_id=str(last.id), order="asc")
+            )
+        return (
+            records[:page_size],
+            self._workspaces.count_for_user(user_id),
+            next_cursor,
+        )
 
     def get(self, workspace_id: int, user_id: int) -> WorkspaceRecord:
         self._membership(workspace_id, user_id)

@@ -55,6 +55,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [x] Agent 批量删除：单次最多 100 条，事务内按 Workspace 隔离并审计
   - [x] Agent 批量更新：单次最多 100 条，事务内按 Workspace 隔离并逐项审计
   - [x] 用户列表：保留 `page/page_size`，新增按 id 的稳定 keyset `cursor` 分页
+  - [x] Workspace 列表：保留 `page/page_size`，新增按 id 的稳定 keyset `cursor` 分页
   - [ ] 其他资源批量更新与删除
 - [x] 数据模型与迁移机制
   - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）

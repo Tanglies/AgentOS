@@ -757,10 +757,13 @@ class WorkspaceSummary(BaseModel):
 
 
 class WorkspaceListResponse(BaseModel):
-    """Workspace list visible to the current user."""
+    """Paginated Workspace list visible to the current user."""
 
     items: list[WorkspaceSummary]
     total: int
+    page: int = 1
+    page_size: int = 100
+    next_cursor: str | None = None
 
 
 class WorkspaceMemberAddRequest(BaseModel):
