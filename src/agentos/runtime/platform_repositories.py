@@ -330,11 +330,34 @@ class WorkspaceMemberRepository(Repository):
         )
         return self._to_record(row) if row is not None else None
 
-    def list(self, workspace_id: int) -> list[WorkspaceMemberRecord]:
-        rows = self._db.query(
-            "SELECT * FROM workspace_members WHERE workspace_id = ? ORDER BY user_id",
-            (workspace_id,),
-        )
+    def list(
+        self,
+        workspace_id: int,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        after_user_id: int | None = None,
+    ) -> list[WorkspaceMemberRecord]:
+        """List memberships by user id, optionally resuming with a keyset."""
+        if limit is None:
+            rows = self._db.query(
+                "SELECT * FROM workspace_members "
+                "WHERE workspace_id = ? ORDER BY user_id",
+                (workspace_id,),
+            )
+        elif after_user_id is None:
+            rows = self._db.query(
+                "SELECT * FROM workspace_members "
+                "WHERE workspace_id = ? ORDER BY user_id LIMIT ? OFFSET ?",
+                (workspace_id, limit, offset),
+            )
+        else:
+            rows = self._db.query(
+                "SELECT * FROM workspace_members "
+                "WHERE workspace_id = ? AND user_id > ? "
+                "ORDER BY user_id LIMIT ?",
+                (workspace_id, after_user_id, limit),
+            )
         return [self._to_record(row) for row in rows]
 
     def list_workspace_ids(self, user_id: int) -> list[int]:

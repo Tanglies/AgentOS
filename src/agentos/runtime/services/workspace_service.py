@@ -25,6 +25,7 @@ from agentos.runtime.audit import (
     AuditLog,
 )
 from agentos.runtime.platform_repositories import (
+    UserRecord,
     UserRepository,
     UserStatus,
     WorkspaceMemberRecord,
@@ -198,17 +199,61 @@ class WorkspaceService:
         """Return the current user's role in a Workspace."""
         return self._membership(workspace_id, user_id).role
 
-    def _user_record(self, user_id: int):
+    def _user_record(self, user_id: int) -> UserRecord | None:
         if self._users is None:
             return None
         user = self._users.get(user_id) if hasattr(self._users, "get") else None
         return user
 
-    def list_members(self, workspace_id: int, user_id: int):
-        """Return memberships enriched with user display metadata."""
+    def list_members(
+        self,
+        workspace_id: int,
+        user_id: int,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        cursor: KeysetCursor | None = None,
+    ) -> tuple[
+        list[tuple[WorkspaceMemberRecord, UserRecord | None]],
+        int,
+        str | None,
+    ]:
+        """Return a stable member page enriched with user display metadata."""
         self._membership(workspace_id, user_id)
-        records = self._members.list(workspace_id)
-        return [(record, self._user_record(record.user_id)) for record in records]
+        after_user_id = None
+        if cursor is not None:
+            ensure_cursor_order(cursor.order, "asc")
+            key_id = ensure_cursor_row_id(cursor.key)
+            item_id = ensure_cursor_row_id(cursor.item_id)
+            if key_id != item_id:
+                raise ValidationError(
+                    "invalid pagination cursor",
+                    details={"parameter": "cursor"},
+                )
+            after_user_id = item_id
+
+        offset = 0 if cursor is not None else (page - 1) * page_size
+        records = self._members.list(
+            workspace_id,
+            limit=page_size + 1,
+            offset=offset,
+            after_user_id=after_user_id,
+        )
+        next_cursor = None
+        if len(records) > page_size:
+            last = records[page_size - 1]
+            next_cursor = encode_keyset_cursor(
+                KeysetCursor(
+                    key=str(last.user_id),
+                    item_id=str(last.user_id),
+                    order="asc",
+                )
+            )
+        return (
+            [(record, self._user_record(record.user_id)) for record in records[:page_size]],
+            self._members.count(workspace_id),
+            next_cursor,
+        )
 
     def add_member(
         self,

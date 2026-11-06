@@ -16,7 +16,7 @@ from agentos.api.schemas import (
 )
 from agentos.core.context import get_user_id
 from agentos.core.exceptions import ValidationError
-from agentos.core.pagination import decode_keyset_cursor
+from agentos.core.pagination import KeysetCursor, decode_keyset_cursor
 from agentos.core.tenancy import DEFAULT_USER_ID
 from agentos.runtime.api_keys import Permission
 
@@ -140,9 +140,34 @@ async def delete_workspace(workspace_id: int, service: WorkspaceServiceDep) -> R
     dependencies=[require(Permission.WORKSPACE_READ)],
 )
 async def list_workspace_members(
-    workspace_id: int, service: WorkspaceServiceDep
+    workspace_id: int,
+    service: WorkspaceServiceDep,
+    page: int | None = Query(default=None, ge=1, description="页码，从 1 开始"),
+    page_size: int | None = Query(
+        default=None,
+        ge=1,
+        le=500,
+        description="每页数量",
+    ),
+    cursor: str | None = Query(default=None, description="上一页返回的 next_cursor"),
 ) -> WorkspaceMemberListResponse:
-    return _member_list_response(workspace_id, service, _current_user_id())
+    """按成员 user id 返回稳定游标分页，同时保留 page/page_size。"""
+    if cursor and page is not None:
+        raise ValidationError(
+            "cursor cannot be combined with page",
+            details={"parameter": "cursor"},
+        )
+    resolved_page = 1 if cursor else (page or 1)
+    resolved_page_size = page_size or 100
+    position = decode_keyset_cursor(cursor) if cursor else None
+    return _member_list_response(
+        workspace_id,
+        service,
+        _current_user_id(),
+        page=resolved_page,
+        page_size=resolved_page_size,
+        cursor=position,
+    )
 
 
 @router.post(
@@ -193,13 +218,30 @@ def _member_list_response(
     workspace_id: int,
     service: WorkspaceServiceDep,
     user_id: int,
+    *,
+    page: int,
+    page_size: int,
+    cursor: KeysetCursor | None,
 ) -> WorkspaceMemberListResponse:
+    members, total, next_cursor = service.list_members(
+        workspace_id,
+        user_id,
+        page=page,
+        page_size=page_size,
+        cursor=cursor,
+    )
     items = [
         WorkspaceMemberSummary.from_record(
             member,
             username=user.username if user is not None else "",
             display_name=user.display_name if user is not None else "",
         )
-        for member, user in service.list_members(workspace_id, user_id)
+        for member, user in members
     ]
-    return WorkspaceMemberListResponse(items=items, total=len(items))
+    return WorkspaceMemberListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        next_cursor=next_cursor,
+    )

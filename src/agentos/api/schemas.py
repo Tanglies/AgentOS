@@ -802,10 +802,13 @@ class WorkspaceMemberSummary(BaseModel):
 
 
 class WorkspaceMemberListResponse(BaseModel):
-    """Workspace membership list."""
+    """Paginated Workspace membership list."""
 
     items: list[WorkspaceMemberSummary]
     total: int
+    page: int = 1
+    page_size: int = 100
+    next_cursor: str | None = None
 
 
 class ToolUpdateRequest(BaseModel):

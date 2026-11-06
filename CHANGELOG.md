@@ -3,6 +3,36 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-11-06
+
+### 新增
+
+- Workspace 成员列表新增按 `user_id` 升序的稳定 keyset `cursor` 分页，
+  响应通过 `next_cursor` 返回下一页位置，默认每页最多 100 条
+
+### 修改
+
+- `WorkspaceMemberRepository.list` 与 `WorkspaceService.list_members` 支持
+  `after_user_id`、偏移量和每页上限，同时保留 `page/page_size` 页码分页
+- README、Workspace 文档与 TODO 同步成员分页语义和使用示例
+
+### 修复
+
+- Workspace 遍历期间有新成员加入时，后续成员页不再因偏移量变化而重复或跳过
+
+### 技术记录
+
+- 游标复用现有 `KeysetCursor`，要求排序键与成员 `user_id` 一致且方向固定为
+  升序；损坏、跨列表或方向不一致的游标返回 `422 validation_error`
+- 每页多取一条判断是否存在下一页，`total` 始终为该 Workspace 的成员总数；
+  新增 7 个参数化或独立 API 测试，完整测试套件 740 项通过，
+  `ruff check .` 与 `git diff --check` 通过
+
+### 下一步计划
+
+- 评估 Workspace 成员角色更新接口，继续复用租户隔离与管理员权限校验
+- 拆分用户名/密码登录所需的密码哈希、会话令牌与安全审计小任务
+
 ## 2026-11-05
 
 ### 新增

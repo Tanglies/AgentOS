@@ -328,6 +328,14 @@ curl "http://127.0.0.1:8000/api/v1/workspaces?page_size=100"
 curl "http://127.0.0.1:8000/api/v1/workspaces?page_size=100&cursor=<next_cursor>"
 ```
 
+Workspace members use a stable `user_id`-keyed cursor while retaining
+`page/page_size`, so membership changes during a walk do not shift later pages:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/workspaces/42/members?page_size=100"
+curl "http://127.0.0.1:8000/api/v1/workspaces/42/members?page_size=100&cursor=<next_cursor>"
+```
+
 Partially update one Agent without replacing omitted fields:
 
 ```bash

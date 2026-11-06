@@ -9,7 +9,7 @@
 | GET | `/api/v1/workspaces/{id}` | 获取 Workspace |
 | PATCH | `/api/v1/workspaces/{id}` | 更新名称，需要 owner/admin |
 | DELETE | `/api/v1/workspaces/{id}` | 删除，仅 owner，default Workspace 不可删 |
-| GET | `/api/v1/workspaces/{id}/members` | 成员列表 |
+| GET | `/api/v1/workspaces/{id}/members` | 成员列表，支持页码与稳定游标分页 |
 | POST | `/api/v1/workspaces/{id}/members` | 添加成员 |
 | DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
 
@@ -24,6 +24,15 @@ GET /api/v1/workspaces?page_size=100&cursor=eyJ2IjoyLCJrZXkiOiI0MiJ9
 
 `cursor` 不能与 `page` 同时使用；损坏游标、跨列表游标或排序方向不一致的游标
 返回 `422 validation_error`。`total` 表示当前用户可见的 Workspace 总数。
+
+Workspace 成员目录同样保留 `page` / `page_size`，并按成员 `user_id` 升序返回
+稳定 `next_cursor`。遍历期间新增成员不会让后续页面重复或偏移，默认每页最多
+100 条，`total` 表示该 Workspace 的成员总数：
+
+```http
+GET /api/v1/workspaces/42/members?page_size=100
+GET /api/v1/workspaces/42/members?page_size=100&cursor=eyJ2IjoyLCJrZXkiOiI0MiJ9
+```
 
 创建示例：
 

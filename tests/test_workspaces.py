@@ -85,6 +85,160 @@ def test_member_lifecycle(tmp_path: Path) -> None:
     assert after.json()["total"] == 1
 
 
+def test_workspace_member_cursor_pagination_is_stable_when_member_is_added(
+    tmp_path: Path,
+) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        members_path = f"/api/v1/workspaces/{workspace['id']}/members"
+
+        for username in ("alice", "bob", "carol"):
+            user = client.post(
+                "/api/v1/users",
+                headers=headers(),
+                json={"username": username},
+            ).json()
+            response = client.post(
+                members_path,
+                headers=headers(),
+                json={"user_id": user["id"], "role": "member"},
+            )
+            assert response.status_code == 201
+
+        first = client.get(
+            members_path,
+            headers=headers(),
+            params={"page_size": 2},
+        ).json()
+        dave = client.post(
+            "/api/v1/users",
+            headers=headers(),
+            json={"username": "dave"},
+        ).json()
+        response = client.post(
+            members_path,
+            headers=headers(),
+            json={"user_id": dave["id"], "role": "member"},
+        )
+        assert response.status_code == 201
+        second = client.get(
+            members_path,
+            headers=headers(),
+            params={"page_size": 2, "cursor": first["next_cursor"]},
+        ).json()
+        third = client.get(
+            members_path,
+            headers=headers(),
+            params={"page_size": 2, "cursor": second["next_cursor"]},
+        ).json()
+
+    assert [item["username"] for item in first["items"]] == ["bootstrap", "alice"]
+    assert [item["username"] for item in second["items"]] == ["bob", "carol"]
+    assert [item["username"] for item in third["items"]] == ["dave"]
+    assert first["total"] == 4
+    assert second["total"] == third["total"] == 5
+    assert first["page"] == second["page"] == third["page"] == 1
+    assert first["page_size"] == second["page_size"] == third["page_size"] == 2
+    assert first["next_cursor"] and second["next_cursor"]
+    assert third["next_cursor"] is None
+
+
+def test_workspace_member_page_pagination_remains_available(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        members_path = f"/api/v1/workspaces/{workspace['id']}/members"
+        for username in ("alice", "bob", "carol"):
+            user = client.post(
+                "/api/v1/users",
+                headers=headers(),
+                json={"username": username},
+            ).json()
+            client.post(
+                members_path,
+                headers=headers(),
+                json={"user_id": user["id"], "role": "member"},
+            )
+
+        response = client.get(
+            members_path,
+            headers=headers(),
+            params={"page": 2, "page_size": 2},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["page"] == 2
+    assert body["page_size"] == 2
+    assert [item["username"] for item in body["items"]] == ["bob", "carol"]
+    assert body["next_cursor"] is None
+
+
+def test_workspace_member_cursor_cannot_be_combined_with_page(
+    tmp_path: Path,
+) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        members_path = f"/api/v1/workspaces/{workspace['id']}/members"
+        user = client.post(
+            "/api/v1/users",
+            headers=headers(),
+            json={"username": "alice"},
+        ).json()
+        client.post(
+            members_path,
+            headers=headers(),
+            json={"user_id": user["id"], "role": "member"},
+        )
+        first = client.get(
+            members_path,
+            headers=headers(),
+            params={"page_size": 1},
+        ).json()
+        response = client.get(
+            members_path,
+            headers=headers(),
+            params={"page": 2, "cursor": first["next_cursor"]},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "not-a-cursor",
+        encode_cursor(
+            PaginationCursor(
+                created_at=datetime(2026, 11, 6, tzinfo=UTC),
+                item_id="1",
+            )
+        ),
+        encode_keyset_cursor(KeysetCursor(key="1", item_id="2")),
+        encode_keyset_cursor(KeysetCursor(key="1", item_id="1", order="desc")),
+    ],
+)
+def test_workspace_member_list_rejects_foreign_or_malformed_cursors(
+    tmp_path: Path,
+    token: str,
+) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        response = client.get(
+            "/api/v1/workspaces/1/members",
+            headers=headers(),
+            params={"cursor": token},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_default_workspace_cannot_be_deleted(tmp_path: Path) -> None:
     with TestClient(tenant_app(tmp_path)) as client:
         response = client.delete("/api/v1/workspaces/1", headers=headers())
