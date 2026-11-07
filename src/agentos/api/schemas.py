@@ -773,6 +773,12 @@ class WorkspaceMemberAddRequest(BaseModel):
     role: WorkspaceRole = WorkspaceRole.MEMBER
 
 
+class WorkspaceMemberUpdateRequest(BaseModel):
+    """Update a Workspace member's role."""
+
+    role: WorkspaceRole
+
+
 class WorkspaceMemberSummary(BaseModel):
     """Workspace membership response."""
 

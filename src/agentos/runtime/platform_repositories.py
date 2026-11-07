@@ -367,6 +367,13 @@ class WorkspaceMemberRepository(Repository):
         )
         return [int(row["workspace_id"]) for row in rows]
 
+    def update_role(self, workspace_id: int, user_id: int, role: WorkspaceRole) -> bool:
+        """Update one membership role."""
+        return self._db.execute(
+            "UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?",
+            (role.value, workspace_id, user_id),
+        ) > 0
+
     def remove(self, workspace_id: int, user_id: int) -> bool:
         return self._db.execute(
             "DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?",

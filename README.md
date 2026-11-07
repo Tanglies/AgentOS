@@ -336,6 +336,15 @@ curl "http://127.0.0.1:8000/api/v1/workspaces/42/members?page_size=100"
 curl "http://127.0.0.1:8000/api/v1/workspaces/42/members?page_size=100&cursor=<next_cursor>"
 ```
 
+Workspace owners and admins can update a non-owner member's role; each change is
+audited as `workspace.member.update`:
+
+```bash
+curl -X PATCH "http://127.0.0.1:8000/api/v1/workspaces/42/members/7" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"viewer"}'
+```
+
 Partially update one Agent without replacing omitted fields:
 
 ```bash

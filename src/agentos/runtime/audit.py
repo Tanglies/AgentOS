@@ -54,6 +54,7 @@ ACTION_WORKSPACE_CREATE = "workspace.create"
 ACTION_WORKSPACE_UPDATE = "workspace.update"
 ACTION_WORKSPACE_DELETE = "workspace.delete"
 ACTION_WORKSPACE_MEMBER_ADD = "workspace.member.add"
+ACTION_WORKSPACE_MEMBER_UPDATE = "workspace.member.update"
 ACTION_WORKSPACE_MEMBER_REMOVE = "workspace.member.remove"
 ACTION_TOOL_ENABLE = "tool.enable"
 ACTION_TOOL_DISABLE = "tool.disable"
@@ -73,6 +74,7 @@ __all__ = [
     "ACTION_WORKSPACE_CREATE",
     "ACTION_WORKSPACE_DELETE",
     "ACTION_WORKSPACE_MEMBER_ADD",
+    "ACTION_WORKSPACE_MEMBER_UPDATE",
     "ACTION_WORKSPACE_MEMBER_REMOVE",
     "ACTION_WORKSPACE_UPDATE",
     "AuditEntry",

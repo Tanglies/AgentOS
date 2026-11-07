@@ -11,6 +11,7 @@ from agentos.api.schemas import (
     WorkspaceMemberAddRequest,
     WorkspaceMemberListResponse,
     WorkspaceMemberSummary,
+    WorkspaceMemberUpdateRequest,
     WorkspaceSummary,
     WorkspaceUpdateRequest,
 )
@@ -187,6 +188,31 @@ async def add_workspace_member(
         workspace_id,
         _current_user_id(),
         member_user_id=payload.user_id,
+        role=payload.role,
+    )
+    user = users.get(member.user_id)
+    return WorkspaceMemberSummary.from_record(
+        member, username=user.username, display_name=user.display_name
+    )
+
+
+@router.patch(
+    "/{workspace_id}/members/{member_user_id}",
+    response_model=WorkspaceMemberSummary,
+    summary="更新 Workspace 成员角色",
+    dependencies=[require(Permission.WORKSPACE_WRITE)],
+)
+async def update_workspace_member_role(
+    workspace_id: int,
+    member_user_id: int,
+    payload: WorkspaceMemberUpdateRequest,
+    service: WorkspaceServiceDep,
+    users: UserServiceDep,
+) -> WorkspaceMemberSummary:
+    member = service.update_member_role(
+        workspace_id,
+        _current_user_id(),
+        member_user_id=member_user_id,
         role=payload.role,
     )
     user = users.get(member.user_id)

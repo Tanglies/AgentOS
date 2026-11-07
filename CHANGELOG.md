@@ -3,6 +3,38 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-11-07
+
+### 新增
+
+- Workspace 成员新增 `PATCH /api/v1/workspaces/{id}/members/{user_id}`，
+  owner/admin 可将非 owner 成员调整为 `admin`、`member` 或 `viewer`
+- 成员角色变更新增 `workspace.member.update` 审计事件，记录变更前后的角色
+
+### 修改
+
+- `WorkspaceMemberRepository` 与 `WorkspaceService` 新增角色更新能力，并复用
+  Workspace 管理员权限、成员存在性与租户隔离校验
+- README、Workspace 文档与 TODO 同步成员角色更新接口、保护规则和使用示例
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 保持 owner 唯一且不可通过成员接口变更：修改 owner 或分配 owner 角色分别
+  返回 `403 permission_denied` 与 `422 validation_error`
+- 角色未变化时保持幂等且不写无意义审计；实际变更写入
+  `role: <old> -> <new>` 明细
+- 新增 5 个 API/权限/审计测试，完整测试套件 745 项通过，
+  `ruff check .` 与 `git diff --check` 通过
+
+### 下一步计划
+
+- 拆解用户名/密码注册与登录所需的安全密码哈希、会话令牌和撤销审计
+- 继续评估其他平台资源的安全批量更新与删除边界
+
 ## 2026-11-06
 
 ### 新增

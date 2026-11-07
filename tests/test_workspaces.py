@@ -14,7 +14,13 @@ from agentos.core.pagination import (
     encode_cursor,
     encode_keyset_cursor,
 )
-from tenancy_support import headers, tenant_app
+from agentos.runtime.audit import ACTION_WORKSPACE_MEMBER_UPDATE
+from tenancy_support import (
+    create_tenant,
+    create_workspace_key,
+    headers,
+    tenant_app,
+)
 
 
 def test_create_list_get_update_and_delete_workspace(tmp_path: Path) -> None:
@@ -83,6 +89,160 @@ def test_member_lifecycle(tmp_path: Path) -> None:
     assert listed.json()["total"] == 2
     assert removed.status_code == 204
     assert after.json()["total"] == 1
+
+
+def test_workspace_member_role_update_is_audited(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        user = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "member"}
+        ).json()
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        member_path = f"/api/v1/workspaces/{workspace['id']}/members/{user['id']}"
+        added = client.post(
+            f"/api/v1/workspaces/{workspace['id']}/members",
+            headers=headers(),
+            json={"user_id": user["id"], "role": "member"},
+        )
+        updated = client.patch(
+            member_path,
+            headers=headers(),
+            json={"role": "admin"},
+        )
+        audit_entries = client.app.state.audit_log.list(
+            workspace_id=workspace["id"],
+            action=ACTION_WORKSPACE_MEMBER_UPDATE,
+        )
+
+    assert added.status_code == 201
+    assert updated.status_code == 200
+    assert updated.json()["user_id"] == user["id"]
+    assert updated.json()["username"] == "member"
+    assert updated.json()["role"] == "admin"
+    assert len(audit_entries) == 1
+    assert audit_entries[0].target == str(user["id"])
+    assert audit_entries[0].detail == "role: member -> admin"
+
+
+def test_workspace_admin_can_update_another_member_role(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        admin = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "admin"}
+        ).json()
+        target = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "target"}
+        ).json()
+        client.post(
+            f"/api/v1/workspaces/{workspace['id']}/members",
+            headers=headers(),
+            json={"user_id": admin["id"], "role": "admin"},
+        )
+        client.post(
+            f"/api/v1/workspaces/{workspace['id']}/members",
+            headers=headers(),
+            json={"user_id": target["id"], "role": "member"},
+        )
+        admin_key = create_workspace_key(
+            client,
+            user_id=admin["id"],
+            workspace_id=workspace["id"],
+            name="admin-key",
+        )
+        response = client.patch(
+            f"/api/v1/workspaces/{workspace['id']}/members/{target['id']}",
+            headers=headers(admin_key),
+            json={"role": "viewer"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "viewer"
+
+
+def test_workspace_member_cannot_update_roles(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        actor = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "actor"}
+        ).json()
+        target = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "target"}
+        ).json()
+        for user in (actor, target):
+            client.post(
+                f"/api/v1/workspaces/{workspace['id']}/members",
+                headers=headers(),
+                json={"user_id": user["id"], "role": "member"},
+            )
+        actor_key = create_workspace_key(
+            client,
+            user_id=actor["id"],
+            workspace_id=workspace["id"],
+            name="actor-key",
+        )
+        response = client.patch(
+            f"/api/v1/workspaces/{workspace['id']}/members/{target['id']}",
+            headers=headers(actor_key),
+            json={"role": "admin"},
+        )
+
+    assert response.status_code == 403
+
+
+def test_workspace_owner_role_is_protected_from_member_api(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        user = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "member"}
+        ).json()
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        client.post(
+            f"/api/v1/workspaces/{workspace['id']}/members",
+            headers=headers(),
+            json={"user_id": user["id"], "role": "member"},
+        )
+        change_owner = client.patch(
+            f"/api/v1/workspaces/{workspace['id']}/members/1",
+            headers=headers(),
+            json={"role": "admin"},
+        )
+        assign_owner = client.patch(
+            f"/api/v1/workspaces/{workspace['id']}/members/{user['id']}",
+            headers=headers(),
+            json={"role": "owner"},
+        )
+
+    assert change_owner.status_code == 403
+    assert assign_owner.status_code == 422
+
+
+def test_workspace_member_role_update_is_workspace_scoped(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        owner_workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Owner Team"}
+        ).json()
+        target = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "target"}
+        ).json()
+        client.post(
+            f"/api/v1/workspaces/{owner_workspace['id']}/members",
+            headers=headers(),
+            json={"user_id": target["id"], "role": "member"},
+        )
+        outsider = create_tenant(client, "outsider")
+        response = client.patch(
+            f"/api/v1/workspaces/{owner_workspace['id']}/members/{target['id']}",
+            headers=outsider["headers"],
+            json={"role": "admin"},
+        )
+
+    assert response.status_code == 404
 
 
 def test_workspace_member_cursor_pagination_is_stable_when_member_is_added(

@@ -11,6 +11,7 @@
 | DELETE | `/api/v1/workspaces/{id}` | 删除，仅 owner，default Workspace 不可删 |
 | GET | `/api/v1/workspaces/{id}/members` | 成员列表，支持页码与稳定游标分页 |
 | POST | `/api/v1/workspaces/{id}/members` | 添加成员 |
+| PATCH | `/api/v1/workspaces/{id}/members/{user_id}` | 更新成员角色 |
 | DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
 
 Workspace 目录保留 `page` / `page_size` 页码分页，同时在响应中返回
@@ -32,6 +33,16 @@ Workspace 成员目录同样保留 `page` / `page_size`，并按成员 `user_id`
 ```http
 GET /api/v1/workspaces/42/members?page_size=100
 GET /api/v1/workspaces/42/members?page_size=100&cursor=eyJ2IjoyLCJrZXkiOiI0MiJ9
+```
+
+owner/admin 可将非 owner 成员调整为 `admin`、`member` 或 `viewer`，角色变更会写入
+`workspace.member.update` 审计事件。owner 角色不能通过成员接口变更或重新分配：
+
+```powershell
+curl.exe -X PATCH http://127.0.0.1:8000/api/v1/workspaces/42/members/7 `
+  -H "X-API-Key: sk-bootstrap-admin" `
+  -H "Content-Type: application/json" `
+  -d '{"role":"viewer"}'
 ```
 
 创建示例：

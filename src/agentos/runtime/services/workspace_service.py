@@ -21,6 +21,7 @@ from agentos.runtime.audit import (
     ACTION_WORKSPACE_DELETE,
     ACTION_WORKSPACE_MEMBER_ADD,
     ACTION_WORKSPACE_MEMBER_REMOVE,
+    ACTION_WORKSPACE_MEMBER_UPDATE,
     ACTION_WORKSPACE_UPDATE,
     AuditLog,
 )
@@ -290,6 +291,44 @@ class WorkspaceService:
                 user_id=user_id,
             )
         return record
+
+    def update_member_role(
+        self,
+        workspace_id: int,
+        user_id: int,
+        *,
+        member_user_id: int,
+        role: WorkspaceRole,
+    ) -> WorkspaceMemberRecord:
+        """Update a non-owner member's role within an administered Workspace."""
+        actor = self._membership(workspace_id, user_id)
+        if actor.role not in ADMIN_ROLES:
+            raise PermissionDeniedError("member management requires admin role")
+        target = self._members.get(workspace_id, member_user_id)
+        if target is None:
+            raise NotFoundError(
+                "workspace member not found",
+                details={"workspace_id": workspace_id, "user_id": member_user_id},
+            )
+        if target.role == WorkspaceRole.OWNER:
+            raise PermissionDeniedError("workspace owner role cannot be changed")
+        if role == WorkspaceRole.OWNER:
+            raise ValidationError("owner role cannot be assigned through member API")
+        if target.role == role:
+            return target
+        self._members.update_role(workspace_id, member_user_id, role)
+        updated = self._members.get(workspace_id, member_user_id)
+        if updated is None:  # pragma: no cover - membership row was just updated
+            raise RuntimeError("workspace membership disappeared after update")
+        if self._audit is not None:
+            self._audit.record(
+                ACTION_WORKSPACE_MEMBER_UPDATE,
+                target=str(member_user_id),
+                detail=f"role: {target.role.value} -> {role.value}",
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+        return updated
 
     def remove_member(self, workspace_id: int, user_id: int, *, member_user_id: int) -> None:
         actor = self._membership(workspace_id, user_id)
