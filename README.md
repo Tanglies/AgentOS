@@ -345,6 +345,16 @@ curl -X PATCH "http://127.0.0.1:8000/api/v1/workspaces/42/members/7" \
   -d '{"role":"viewer"}'
 ```
 
+Update up to 100 member roles atomically with the batch endpoint. Owner rows are
+protected, and unknown or inaccessible user ids are reported without blocking
+valid updates:
+
+```bash
+curl -X PATCH "http://127.0.0.1:8000/api/v1/workspaces/42/members/batch" \
+  -H "Content-Type: application/json" \
+  -d '{"updates":[{"user_id":7,"role":"viewer"},{"user_id":8,"role":"admin"}]}'
+```
+
 Partially update one Agent without replacing omitted fields:
 
 ```bash

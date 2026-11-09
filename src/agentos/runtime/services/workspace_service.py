@@ -330,6 +330,49 @@ class WorkspaceService:
             )
         return updated
 
+    def update_member_roles(
+        self,
+        workspace_id: int,
+        user_id: int,
+        *,
+        updates: list[tuple[int, WorkspaceRole]],
+    ) -> tuple[list[WorkspaceMemberRecord], list[int]]:
+        """Atomically update member roles and report absent user ids."""
+        actor = self._membership(workspace_id, user_id)
+        if actor.role not in ADMIN_ROLES:
+            raise PermissionDeniedError("member management requires admin role")
+        if any(role == WorkspaceRole.OWNER for _, role in updates):
+            raise ValidationError("owner role cannot be assigned through member API")
+
+        requested_ids = list(dict.fromkeys(member_user_id for member_user_id, _ in updates))
+        targets = {
+            member.user_id: member
+            for member in self._members.get_many(workspace_id, requested_ids)
+        }
+        if any(member.role == WorkspaceRole.OWNER for member in targets.values()):
+            raise PermissionDeniedError("workspace owner role cannot be changed")
+
+        records = self._members.update_roles(workspace_id, updates)
+        updated_ids = {record.user_id for record in records}
+        missing_user_ids = [
+            member_user_id
+            for member_user_id in requested_ids
+            if member_user_id not in updated_ids
+        ]
+        if self._audit is not None:
+            for record in records:
+                previous = targets[record.user_id]
+                if previous.role == record.role:
+                    continue
+                self._audit.record(
+                    ACTION_WORKSPACE_MEMBER_UPDATE,
+                    target=str(record.user_id),
+                    detail=f"role: {previous.role.value} -> {record.role.value}",
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                )
+        return records, missing_user_ids
+
     def remove_member(self, workspace_id: int, user_id: int, *, member_user_id: int) -> None:
         actor = self._membership(workspace_id, user_id)
         if actor.role not in ADMIN_ROLES:

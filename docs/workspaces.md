@@ -11,6 +11,7 @@
 | DELETE | `/api/v1/workspaces/{id}` | 删除，仅 owner，default Workspace 不可删 |
 | GET | `/api/v1/workspaces/{id}/members` | 成员列表，支持页码与稳定游标分页 |
 | POST | `/api/v1/workspaces/{id}/members` | 添加成员 |
+| PATCH | `/api/v1/workspaces/{id}/members/batch` | 原子批量更新成员角色 |
 | PATCH | `/api/v1/workspaces/{id}/members/{user_id}` | 更新成员角色 |
 | DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
 
@@ -43,6 +44,18 @@ curl.exe -X PATCH http://127.0.0.1:8000/api/v1/workspaces/42/members/7 `
   -H "X-API-Key: sk-bootstrap-admin" `
   -H "Content-Type: application/json" `
   -d '{"role":"viewer"}'
+```
+
+同一规则适用于批量接口：单次最多提交 100 个唯一 `user_id`，所有角色写入在同一
+SQLite 事务中完成。只要批次包含 owner 目标，整批请求都会在写入前返回 `403`；
+不存在或不属于目标 Workspace 的成员通过 `missing_user_ids` 报告，不影响其他
+合法成员的更新。实际角色变化逐项写入 `workspace.member.update` 审计：
+
+```powershell
+curl.exe -X PATCH http://127.0.0.1:8000/api/v1/workspaces/42/members/batch `
+  -H "X-API-Key: sk-bootstrap-admin" `
+  -H "Content-Type: application/json" `
+  -d '{"updates":[{"user_id":7,"role":"viewer"},{"user_id":8,"role":"admin"}]}'
 ```
 
 创建示例：

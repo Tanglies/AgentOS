@@ -9,6 +9,8 @@ from agentos.api.schemas import (
     WorkspaceCreateRequest,
     WorkspaceListResponse,
     WorkspaceMemberAddRequest,
+    WorkspaceMemberBatchUpdateRequest,
+    WorkspaceMemberBatchUpdateResponse,
     WorkspaceMemberListResponse,
     WorkspaceMemberSummary,
     WorkspaceMemberUpdateRequest,
@@ -193,6 +195,42 @@ async def add_workspace_member(
     user = users.get(member.user_id)
     return WorkspaceMemberSummary.from_record(
         member, username=user.username, display_name=user.display_name
+    )
+
+
+@router.patch(
+    "/{workspace_id}/members/batch",
+    response_model=WorkspaceMemberBatchUpdateResponse,
+    summary="批量更新 Workspace 成员角色",
+    dependencies=[require(Permission.WORKSPACE_WRITE)],
+)
+async def batch_update_workspace_member_roles(
+    workspace_id: int,
+    payload: WorkspaceMemberBatchUpdateRequest,
+    service: WorkspaceServiceDep,
+    users: UserServiceDep,
+) -> WorkspaceMemberBatchUpdateResponse:
+    """Atomically update visible members and report absent user ids."""
+    records, missing_user_ids = service.update_member_roles(
+        workspace_id,
+        _current_user_id(),
+        updates=[(item.user_id, item.role) for item in payload.updates],
+    )
+    items = []
+    for record in records:
+        user = users.get(record.user_id)
+        items.append(
+            WorkspaceMemberSummary.from_record(
+                record,
+                username=user.username,
+                display_name=user.display_name,
+            )
+        )
+    return WorkspaceMemberBatchUpdateResponse(
+        requested=len(payload.updates),
+        updated=len(records),
+        items=items,
+        missing_user_ids=missing_user_ids,
     )
 
 

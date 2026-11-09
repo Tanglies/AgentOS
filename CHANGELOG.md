@@ -3,6 +3,36 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-11-09
+
+### 新增
+
+- Workspace 成员新增 `PATCH /api/v1/workspaces/{id}/members/batch`，
+  owner/admin 可在单次请求中原子更新最多 100 个非 owner 成员的角色
+- 批量响应返回已更新成员、实际更新数量与 `missing_user_ids`，实际角色变化
+  逐项写入 `workspace.member.update` 审计
+
+### 修改
+
+- `WorkspaceMemberRepository` 新增按用户批量读取与事务内角色更新能力
+- README、Workspace 文档与 TODO 同步批量成员角色更新接口、边界与示例
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 批量接口先整体校验调用者角色、owner 保护和 owner 目标，再执行单事务写入；
+  包含 owner 的请求不会留下部分更新
+- 重复执行相同角色保持幂等，仅实际变化写入审计；缺失成员不阻塞其他合法更新
+- 新增 9 个批量更新、权限、租户隔离、原子性与输入校验测试
+
+### 下一步计划
+
+- 评估 Workspace 成员批量移除与自退出语义
+- 拆分用户名/密码登录所需的安全密码哈希、会话令牌与撤销审计
+
 ## 2026-11-07
 
 ### 新增

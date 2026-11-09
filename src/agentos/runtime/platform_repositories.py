@@ -374,6 +374,58 @@ class WorkspaceMemberRepository(Repository):
             (role.value, workspace_id, user_id),
         ) > 0
 
+    def get_many(
+        self,
+        workspace_id: int,
+        user_ids: list[int],
+    ) -> list[WorkspaceMemberRecord]:
+        """Return selected Workspace memberships in user-id order."""
+        if not user_ids:
+            return []
+        unique_ids = list(dict.fromkeys(user_ids))
+        placeholders = ", ".join("?" for _ in unique_ids)
+        rows = self._db.query(
+            f"SELECT * FROM workspace_members WHERE workspace_id = ? "
+            f"AND user_id IN ({placeholders}) ORDER BY user_id",
+            (workspace_id, *unique_ids),
+        )
+        return [self._to_record(row) for row in rows]
+
+    def update_roles(
+        self,
+        workspace_id: int,
+        updates: list[tuple[int, WorkspaceRole]],
+    ) -> list[WorkspaceMemberRecord]:
+        """Update selected membership roles atomically in request order."""
+        if not updates:
+            return []
+        user_ids = [user_id for user_id, _ in updates]
+        placeholders = ", ".join("?" for _ in user_ids)
+        records: list[WorkspaceMemberRecord] = []
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                f"SELECT user_id FROM workspace_members WHERE workspace_id = ? "
+                f"AND user_id IN ({placeholders})",
+                (workspace_id, *user_ids),
+            ).fetchall()
+            existing_ids = {int(row["user_id"]) for row in rows}
+            for user_id, role in updates:
+                if user_id not in existing_ids:
+                    continue
+                conn.execute(
+                    "UPDATE workspace_members SET role = ? "
+                    "WHERE workspace_id = ? AND user_id = ?",
+                    (role.value, workspace_id, user_id),
+                )
+                updated = conn.execute(
+                    "SELECT * FROM workspace_members "
+                    "WHERE workspace_id = ? AND user_id = ?",
+                    (workspace_id, user_id),
+                ).fetchone()
+                if updated is not None:
+                    records.append(self._to_record(updated))
+        return records
+
     def remove(self, workspace_id: int, user_id: int) -> bool:
         return self._db.execute(
             "DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?",

@@ -779,6 +779,29 @@ class WorkspaceMemberUpdateRequest(BaseModel):
     role: WorkspaceRole
 
 
+class WorkspaceMemberBatchUpdateItem(WorkspaceMemberUpdateRequest):
+    """One member role update in a batch request."""
+
+    user_id: int = Field(gt=0)
+
+
+class WorkspaceMemberBatchUpdateRequest(BaseModel):
+    """Update up to 100 Workspace member roles in one request."""
+
+    updates: list[WorkspaceMemberBatchUpdateItem] = Field(min_length=1, max_length=100)
+
+    @field_validator("updates")
+    @classmethod
+    def validate_unique_user_ids(
+        cls,
+        updates: list[WorkspaceMemberBatchUpdateItem],
+    ) -> list[WorkspaceMemberBatchUpdateItem]:
+        user_ids = [item.user_id for item in updates]
+        if len(set(user_ids)) != len(user_ids):
+            raise ValueError("workspace member user ids must be unique")
+        return updates
+
+
 class WorkspaceMemberSummary(BaseModel):
     """Workspace membership response."""
 
@@ -815,6 +838,15 @@ class WorkspaceMemberListResponse(BaseModel):
     page: int = 1
     page_size: int = 100
     next_cursor: str | None = None
+
+
+class WorkspaceMemberBatchUpdateResponse(BaseModel):
+    """Outcome of an atomic Workspace member role batch update."""
+
+    requested: int
+    updated: int
+    items: list[WorkspaceMemberSummary]
+    missing_user_ids: list[int] = Field(default_factory=list)
 
 
 class ToolUpdateRequest(BaseModel):
