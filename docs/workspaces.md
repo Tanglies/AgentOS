@@ -13,6 +13,7 @@
 | POST | `/api/v1/workspaces/{id}/members` | 添加成员 |
 | PATCH | `/api/v1/workspaces/{id}/members/batch` | 原子批量更新成员角色 |
 | PATCH | `/api/v1/workspaces/{id}/members/{user_id}` | 更新成员角色 |
+| DELETE | `/api/v1/workspaces/{id}/members/batch` | 原子批量移除成员 |
 | DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
 
 Workspace 目录保留 `page` / `page_size` 页码分页，同时在响应中返回
@@ -56,6 +57,18 @@ curl.exe -X PATCH http://127.0.0.1:8000/api/v1/workspaces/42/members/batch `
   -H "X-API-Key: sk-bootstrap-admin" `
   -H "Content-Type: application/json" `
   -d '{"updates":[{"user_id":7,"role":"viewer"},{"user_id":8,"role":"admin"}]}'
+```
+
+批量移除与角色更新共享相同的权限和原子性边界。单次最多提交 100 个唯一
+`user_id`；只要批次包含 owner，整批请求都会在写入前返回 `403`。不存在或
+不属于目标 Workspace 的成员通过 `missing_user_ids` 报告，实际移除的成员逐项
+写入 `workspace.member.remove` 审计事件：
+
+```powershell
+curl.exe -X DELETE http://127.0.0.1:8000/api/v1/workspaces/42/members/batch `
+  -H "X-API-Key: sk-bootstrap-admin" `
+  -H "Content-Type: application/json" `
+  -d '{"user_ids":[7,8,9]}'
 ```
 
 创建示例：

@@ -99,7 +99,7 @@ The dependency direction remains `api -> runtime -> llm`; `database` and `evalua
 | Persistence | SQLite Repository layer for Agents, Runs, Memory, API keys, Audit, Evaluation, and migrations |
 | Run History | Filtering, offset/cursor pagination, ordering, token usage, tool traces, and full message history |
 | API Keys | Hashed workspace-scoped keys with a stable id-keyed cursor pagination list |
-| Batch Operations | Workspace-scoped Memory deletion, API key revocation, and Agent deletion with bounded input lists |
+| Batch Operations | Workspace-scoped Memory/Agent deletion, API key revocation, and member role/removal changes with bounded input lists |
 | Evaluation | Runtime metrics plus JSONL datasets, rule evaluators, tool trajectory checks, optional LLM judge, and regression reports |
 | Observability | Trace/request/run context, audit records, OpenTelemetry spans, and low-cardinality Prometheus metrics |
 | Multi-Tenant | User, Workspace, membership, resource isolation, quota, usage, and sliding-window rate limit |
@@ -353,6 +353,16 @@ valid updates:
 curl -X PATCH "http://127.0.0.1:8000/api/v1/workspaces/42/members/batch" \
   -H "Content-Type: application/json" \
   -d '{"updates":[{"user_id":7,"role":"viewer"},{"user_id":8,"role":"admin"}]}'
+```
+
+Remove up to 100 non-owner members atomically. Any owner in the batch rejects
+the entire request; absent or inaccessible user ids are reported in
+`missing_user_ids`:
+
+```bash
+curl -X DELETE "http://127.0.0.1:8000/api/v1/workspaces/42/members/batch" \
+  -H "Content-Type: application/json" \
+  -d '{"user_ids":[7,8,9]}'
 ```
 
 Partially update one Agent without replacing omitted fields:

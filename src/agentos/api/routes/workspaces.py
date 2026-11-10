@@ -9,6 +9,8 @@ from agentos.api.schemas import (
     WorkspaceCreateRequest,
     WorkspaceListResponse,
     WorkspaceMemberAddRequest,
+    WorkspaceMemberBatchRemoveRequest,
+    WorkspaceMemberBatchRemoveResponse,
     WorkspaceMemberBatchUpdateRequest,
     WorkspaceMemberBatchUpdateResponse,
     WorkspaceMemberListResponse,
@@ -256,6 +258,30 @@ async def update_workspace_member_role(
     user = users.get(member.user_id)
     return WorkspaceMemberSummary.from_record(
         member, username=user.username, display_name=user.display_name
+    )
+
+
+@router.delete(
+    "/{workspace_id}/members/batch",
+    response_model=WorkspaceMemberBatchRemoveResponse,
+    summary="批量移除 Workspace 成员",
+    dependencies=[require(Permission.WORKSPACE_WRITE)],
+)
+async def batch_remove_workspace_members(
+    workspace_id: int,
+    payload: WorkspaceMemberBatchRemoveRequest,
+    service: WorkspaceServiceDep,
+) -> WorkspaceMemberBatchRemoveResponse:
+    """Atomically remove visible non-owner members and report absent user ids."""
+    removed_ids, missing_user_ids = service.remove_members(
+        workspace_id,
+        _current_user_id(),
+        member_user_ids=payload.user_ids,
+    )
+    return WorkspaceMemberBatchRemoveResponse(
+        requested=len(payload.user_ids),
+        removed=len(removed_ids),
+        missing_user_ids=missing_user_ids,
     )
 
 

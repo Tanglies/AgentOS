@@ -3,6 +3,36 @@
 本项目的主要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-11-10
+
+### 新增
+
+- Workspace 成员新增 `DELETE /api/v1/workspaces/{id}/members/batch`：
+  owner/admin 可在单次请求中原子移除最多 100 个非 owner 成员
+- 批量移除响应返回请求数、实际移除数与 `missing_user_ids`，实际移除逐项写入
+  `workspace.member.remove` 审计
+
+### 修改
+
+- `WorkspaceMemberRepository` 新增事务内批量移除能力
+- README、Workspace 文档与 TODO 同步批量成员移除接口、边界和示例
+
+### 修复
+
+- 无
+
+### 技术记录
+
+- 批量接口先校验调用者角色并拒绝包含 owner 的整批请求，再在单个 SQLite 事务中
+  删除实际存在的成员；缺失成员不阻塞其他合法移除
+- 重复请求保持幂等，已不存在的成员进入 `missing_user_ids` 且不写审计
+- 新增 8 个批量移除、权限、租户隔离、owner 保护、审计与输入校验测试
+
+### 下一步计划
+
+- 评估普通成员主动退出 Workspace 的权限与 owner 保护语义
+- 拆分用户名/密码登录所需的安全密码哈希、会话令牌与撤销审计
+
 ## 2026-11-09
 
 ### 新增

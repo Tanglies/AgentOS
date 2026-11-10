@@ -849,6 +849,29 @@ class WorkspaceMemberBatchUpdateResponse(BaseModel):
     missing_user_ids: list[int] = Field(default_factory=list)
 
 
+class WorkspaceMemberBatchRemoveRequest(BaseModel):
+    """Remove up to 100 Workspace members in one request."""
+
+    user_ids: list[int] = Field(min_length=1, max_length=100)
+
+    @field_validator("user_ids")
+    @classmethod
+    def validate_user_ids(cls, user_ids: list[int]) -> list[int]:
+        if any(user_id <= 0 for user_id in user_ids):
+            raise ValueError("workspace member user ids must be positive")
+        if len(set(user_ids)) != len(user_ids):
+            raise ValueError("workspace member user ids must be unique")
+        return user_ids
+
+
+class WorkspaceMemberBatchRemoveResponse(BaseModel):
+    """Outcome of an atomic Workspace member batch removal."""
+
+    requested: int
+    removed: int
+    missing_user_ids: list[int] = Field(default_factory=list)
+
+
 class ToolUpdateRequest(BaseModel):
     """Enable or disable a Tool for the current Workspace."""
 

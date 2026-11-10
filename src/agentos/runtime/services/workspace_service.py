@@ -394,5 +394,39 @@ class WorkspaceService:
                 user_id=user_id,
             )
 
+    def remove_members(
+        self,
+        workspace_id: int,
+        user_id: int,
+        *,
+        member_user_ids: list[int],
+    ) -> tuple[list[int], list[int]]:
+        """Atomically remove non-owner members and report absent user ids."""
+        actor = self._membership(workspace_id, user_id)
+        if actor.role not in ADMIN_ROLES:
+            raise PermissionDeniedError("member management requires admin role")
+
+        requested_ids = list(dict.fromkeys(member_user_ids))
+        targets = self._members.get_many(workspace_id, requested_ids)
+        if any(member.role == WorkspaceRole.OWNER for member in targets):
+            raise PermissionDeniedError("workspace owner cannot be removed")
+
+        removed_ids = self._members.remove_many(workspace_id, requested_ids)
+        removed_id_set = set(removed_ids)
+        missing_user_ids = [
+            member_user_id
+            for member_user_id in requested_ids
+            if member_user_id not in removed_id_set
+        ]
+        if self._audit is not None:
+            for member_user_id in removed_ids:
+                self._audit.record(
+                    ACTION_WORKSPACE_MEMBER_REMOVE,
+                    target=str(member_user_id),
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                )
+        return removed_ids, missing_user_ids
+
 
 __all__ = ["WorkspaceService"]

@@ -432,6 +432,29 @@ class WorkspaceMemberRepository(Repository):
             (workspace_id, user_id),
         ) > 0
 
+    def remove_many(self, workspace_id: int, user_ids: list[int]) -> list[int]:
+        """Remove selected memberships atomically and return actual user ids."""
+        if not user_ids:
+            return []
+        unique_ids = list(dict.fromkeys(user_ids))
+        placeholders = ", ".join("?" for _ in unique_ids)
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                f"SELECT user_id FROM workspace_members WHERE workspace_id = ? "
+                f"AND user_id IN ({placeholders})",
+                (workspace_id, *unique_ids),
+            ).fetchall()
+            existing_ids = {int(row["user_id"]) for row in rows}
+            removed_ids = [user_id for user_id in unique_ids if user_id in existing_ids]
+            if removed_ids:
+                removed_placeholders = ", ".join("?" for _ in removed_ids)
+                conn.execute(
+                    f"DELETE FROM workspace_members WHERE workspace_id = ? "
+                    f"AND user_id IN ({removed_placeholders})",
+                    (workspace_id, *removed_ids),
+                )
+        return removed_ids
+
     def remove_workspace(self, workspace_id: int) -> int:
         return self._db.execute(
             "DELETE FROM workspace_members WHERE workspace_id = ?", (workspace_id,)
