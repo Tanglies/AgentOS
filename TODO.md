@@ -60,6 +60,7 @@ AgentOS 的开发任务清单。按优先级从上到下推进，每个任务都
   - [x] Workspace 成员角色更新：仅 owner/admin 可操作，并记录审计事件
   - [x] Workspace 成员角色批量更新：单次最多 100 条，事务写入并逐项审计
   - [x] Workspace 成员批量移除：单次最多 100 条，owner 保护、事务删除并逐项审计
+  - [x] Workspace 成员自退出：非 owner 可删除自己的成员关系，owner 禁止退出
   - [ ] 其他资源批量更新与删除
 - [x] 数据模型与迁移机制
   - [x] 统一 `database` 模块 + Repository 基座（`database/connection.py`、`database/repository.py`、`runtime/repositories.py`）

@@ -14,7 +14,7 @@
 | PATCH | `/api/v1/workspaces/{id}/members/batch` | 原子批量更新成员角色 |
 | PATCH | `/api/v1/workspaces/{id}/members/{user_id}` | 更新成员角色 |
 | DELETE | `/api/v1/workspaces/{id}/members/batch` | 原子批量移除成员 |
-| DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员 |
+| DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | 移除成员；普通成员可退出自己 |
 
 Workspace 目录保留 `page` / `page_size` 页码分页，同时在响应中返回
 `next_cursor`。游标按 Workspace 自增 `id` 升序定位，默认每页最多 100 条；
@@ -69,6 +69,15 @@ curl.exe -X DELETE http://127.0.0.1:8000/api/v1/workspaces/42/members/batch `
   -H "X-API-Key: sk-bootstrap-admin" `
   -H "Content-Type: application/json" `
   -d '{"user_ids":[7,8,9]}'
+```
+
+任何非 owner 成员都可以调用单条移除接口删除自己的成员关系，无需 admin 角色；
+实际退出写入 `workspace.member.remove` 审计事件。成员不能借此删除其他用户，
+owner 也不能退出 Workspace，调用后返回 `403 permission_denied`：
+
+```powershell
+curl.exe -X DELETE http://127.0.0.1:8000/api/v1/workspaces/42/members/7 `
+  -H "X-API-Key: sk-member-key"
 ```
 
 创建示例：

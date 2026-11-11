@@ -14,7 +14,10 @@ from agentos.core.pagination import (
     encode_cursor,
     encode_keyset_cursor,
 )
-from agentos.runtime.audit import ACTION_WORKSPACE_MEMBER_UPDATE
+from agentos.runtime.audit import (
+    ACTION_WORKSPACE_MEMBER_REMOVE,
+    ACTION_WORKSPACE_MEMBER_UPDATE,
+)
 from tenancy_support import (
     create_tenant,
     create_workspace_key,
@@ -89,6 +92,99 @@ def test_member_lifecycle(tmp_path: Path) -> None:
     assert listed.json()["total"] == 2
     assert removed.status_code == 204
     assert after.json()["total"] == 1
+
+
+def test_workspace_member_can_leave_without_admin_role(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        member = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "member"}
+        ).json()
+        client.post(
+            f"/api/v1/workspaces/{workspace['id']}/members",
+            headers=headers(),
+            json={"user_id": member["id"], "role": "member"},
+        )
+        member_key = create_workspace_key(
+            client,
+            user_id=member["id"],
+            workspace_id=workspace["id"],
+            name="member-key",
+        )
+        response = client.delete(
+            f"/api/v1/workspaces/{workspace['id']}/members/{member['id']}",
+            headers=headers(member_key),
+        )
+        members = client.get(
+            f"/api/v1/workspaces/{workspace['id']}/members",
+            headers=headers(),
+        ).json()
+        audit_entries = client.app.state.audit_log.list(
+            workspace_id=workspace["id"],
+            action=ACTION_WORKSPACE_MEMBER_REMOVE,
+        )
+
+    assert response.status_code == 204
+    assert [item["user_id"] for item in members["items"]] == [1]
+    assert len(audit_entries) == 1
+    assert audit_entries[0].target == str(member["id"])
+
+
+def test_workspace_member_cannot_remove_another_member(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        actor = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "actor"}
+        ).json()
+        target = client.post(
+            "/api/v1/users", headers=headers(), json={"username": "target"}
+        ).json()
+        for user in (actor, target):
+            client.post(
+                f"/api/v1/workspaces/{workspace['id']}/members",
+                headers=headers(),
+                json={"user_id": user["id"], "role": "member"},
+            )
+        actor_key = create_workspace_key(
+            client,
+            user_id=actor["id"],
+            workspace_id=workspace["id"],
+            name="actor-key",
+        )
+        response = client.delete(
+            f"/api/v1/workspaces/{workspace['id']}/members/{target['id']}",
+            headers=headers(actor_key),
+        )
+        absent = client.delete(
+            f"/api/v1/workspaces/{workspace['id']}/members/9999",
+            headers=headers(actor_key),
+        )
+
+    assert response.status_code == 403
+    assert absent.status_code == 403
+
+
+def test_workspace_owner_cannot_leave(tmp_path: Path) -> None:
+    with TestClient(tenant_app(tmp_path)) as client:
+        workspace = client.post(
+            "/api/v1/workspaces", headers=headers(), json={"name": "Team"}
+        ).json()
+        response = client.delete(
+            f"/api/v1/workspaces/{workspace['id']}/members/1",
+            headers=headers(),
+        )
+        owner = client.get(
+            f"/api/v1/workspaces/{workspace['id']}",
+            headers=headers(),
+        )
+
+    assert response.status_code == 403
+    assert owner.status_code == 200
+    assert owner.json()["role"] == "owner"
 
 
 def test_workspace_member_role_update_is_audited(tmp_path: Path) -> None:

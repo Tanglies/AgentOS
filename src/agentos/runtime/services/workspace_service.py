@@ -375,7 +375,8 @@ class WorkspaceService:
 
     def remove_member(self, workspace_id: int, user_id: int, *, member_user_id: int) -> None:
         actor = self._membership(workspace_id, user_id)
-        if actor.role not in ADMIN_ROLES:
+        leaving = user_id == member_user_id
+        if not leaving and actor.role not in ADMIN_ROLES:
             raise PermissionDeniedError("member management requires admin role")
         target = self._members.get(workspace_id, member_user_id)
         if target is None:
@@ -384,7 +385,12 @@ class WorkspaceService:
                 details={"workspace_id": workspace_id, "user_id": member_user_id},
             )
         if target.role == WorkspaceRole.OWNER:
-            raise PermissionDeniedError("workspace owner cannot be removed")
+            message = (
+                "workspace owner cannot leave"
+                if leaving
+                else "workspace owner cannot be removed"
+            )
+            raise PermissionDeniedError(message)
         self._members.remove(workspace_id, member_user_id)
         if self._audit is not None:
             self._audit.record(

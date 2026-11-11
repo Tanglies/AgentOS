@@ -365,6 +365,14 @@ curl -X DELETE "http://127.0.0.1:8000/api/v1/workspaces/42/members/batch" \
   -d '{"user_ids":[7,8,9]}'
 ```
 
+Any non-owner member can leave by deleting their own membership without an
+administrator role. Owners cannot leave because a Workspace must retain its
+owner; administrators can still remove other non-owner members:
+
+```bash
+curl -X DELETE "http://127.0.0.1:8000/api/v1/workspaces/42/members/7"
+```
+
 Partially update one Agent without replacing omitted fields:
 
 ```bash
