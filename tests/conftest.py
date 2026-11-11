@@ -18,9 +18,9 @@ from agentos.core.config import Settings, reset_settings_cache
 def pytest_configure(config: pytest.Config) -> None:
     """Keep temp files in the repository and isolate each pytest run."""
     if not config.option.basetemp:
-        config.option.basetemp = str(
-            Path(".pytest_tmp") / f"tmp-{os.getpid()}-{time_ns()}"
-        )
+        basetemp_root = Path(".pytest_tmp")
+        basetemp_root.mkdir(parents=True, exist_ok=True)
+        config.option.basetemp = str(basetemp_root / f"tmp-{os.getpid()}-{time_ns()}")
 
 
 @pytest.fixture(autouse=True)

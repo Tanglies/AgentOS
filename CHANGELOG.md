@@ -18,7 +18,8 @@
 
 ### 修复
 
-- 无
+- 修复全新检出目录中默认 pytest basetemp 父目录未创建，导致 `tmp_path` fixture
+  初始化失败的问题
 
 ### 技术记录
 
@@ -27,8 +28,10 @@
 - 非自退出请求在查询目标前先校验管理员角色，避免普通成员通过 `403` / `404`
   差异探测 Workspace 成员身份
 - 新增 3 个 API 测试，覆盖普通成员自退出与审计、普通成员越权移除他人及
-  owner 不可退出；完整测试套件 765 项通过，`ruff check .` 与
-  `git diff --check` 通过
+  owner 不可退出；另新增 1 个 pytest basetemp 回归测试，完整测试套件 766 项通过，
+  `ruff check .` 与 `git diff --check` 通过
+- 在设置运行级 basetemp 前创建 `.pytest_tmp` 父目录，避免本地历史目录掩盖
+  CI 干净检出环境中的初始化缺陷
 
 ### 下一步计划
 
